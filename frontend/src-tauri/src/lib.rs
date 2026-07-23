@@ -35,7 +35,6 @@ pub(crate) use perf_trace;
 // Re-export async logging macros for external use (removed due to macro conflicts)
 
 // Declare audio module
-pub mod analytics;
 pub mod api;
 pub mod audio;
 pub mod config;
@@ -49,6 +48,8 @@ pub mod anthropic;
 pub mod groq;
 pub mod openrouter;
 pub mod parakeet_engine;
+pub mod sherpa_asr_engine;
+pub mod speaker_diarization_engine;
 pub mod state;
 pub mod summary;
 pub mod tray;
@@ -409,7 +410,6 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(whisper_engine::parallel_commands::ParallelProcessorState::new())
         .manage(Arc::new(RwLock::new(
@@ -453,6 +453,8 @@ pub fn run() {
 
             // Set models directory to use app_data_dir (unified storage location)
             whisper_engine::commands::set_models_directory(&_app.handle());
+            // Set Sherpa-ASR models directory (same as whisper)
+            sherpa_asr_engine::commands::set_models_directory(&_app.handle());
 
             // Initialize Whisper engine on startup
             tauri::async_runtime::spawn(async {
@@ -530,31 +532,6 @@ pub fn run() {
             get_transcription_status,
             read_audio_file,
             save_transcript,
-            analytics::commands::init_analytics,
-            analytics::commands::disable_analytics,
-            analytics::commands::track_event,
-            analytics::commands::identify_user,
-            analytics::commands::track_meeting_started,
-            analytics::commands::track_recording_started,
-            analytics::commands::track_recording_stopped,
-            analytics::commands::track_meeting_deleted,
-            analytics::commands::track_settings_changed,
-            analytics::commands::track_feature_used,
-            analytics::commands::is_analytics_enabled,
-            analytics::commands::start_analytics_session,
-            analytics::commands::end_analytics_session,
-            analytics::commands::track_daily_active_user,
-            analytics::commands::track_user_first_launch,
-            analytics::commands::is_analytics_session_active,
-            analytics::commands::track_summary_generation_started,
-            analytics::commands::track_summary_generation_completed,
-            analytics::commands::track_summary_regenerated,
-            analytics::commands::track_model_changed,
-            analytics::commands::track_custom_prompt_used,
-            analytics::commands::track_meeting_ended,
-            analytics::commands::track_analytics_enabled,
-            analytics::commands::track_analytics_disabled,
-            analytics::commands::track_analytics_transparency_viewed,
             whisper_engine::commands::whisper_init,
             whisper_engine::commands::whisper_get_available_models,
             whisper_engine::commands::whisper_load_model,
@@ -582,6 +559,22 @@ pub fn run() {
             parakeet_engine::commands::parakeet_cancel_download,
             parakeet_engine::commands::parakeet_delete_corrupted_model,
             parakeet_engine::commands::open_parakeet_models_folder,
+
+            // Sherpa-ONNX ASR commands (SenseVoice + Paraformer)
+            sherpa_asr_engine::commands::sherpa_asr_init,
+            sherpa_asr_engine::commands::sherpa_asr_get_available_models,
+            sherpa_asr_engine::commands::sherpa_asr_has_available_models,
+            sherpa_asr_engine::commands::sherpa_asr_download_model,
+            sherpa_asr_engine::commands::sherpa_asr_load_model,
+            sherpa_asr_engine::commands::sherpa_asr_validate_model_ready,
+            sherpa_asr_engine::commands::sherpa_asr_is_model_loaded,
+            sherpa_asr_engine::commands::sherpa_asr_get_current_model,
+            sherpa_asr_engine::commands::sherpa_asr_stop,
+            sherpa_asr_engine::commands::sherpa_asr_get_default_model,
+            // Speaker diarization commands (post-processing speaker labeling)
+            speaker_diarization_engine::commands::speaker_diarization_init,
+            speaker_diarization_engine::commands::speaker_diarization_is_ready,
+            speaker_diarization_engine::commands::speaker_diarization_process,
             // Parallel processing commands
             whisper_engine::parallel_commands::initialize_parallel_processor,
             whisper_engine::parallel_commands::start_parallel_processing,
