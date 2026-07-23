@@ -179,3 +179,154 @@ fn num_cpus() -> i32 {
         .unwrap_or(4);
     cores.min(8).max(1)
 }
+
+/// Lightweight view of a transcript chunk used by the alignment algorithm.
+/// Fields mirror the time range used to match against speaker segments.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TranscriptChunkForAlignment {
+    pub id: String,
+    pub audio_start_time: f64,
+    pub audio_end_time: f64,
+    pub speaker: Option<i32>,
+}
+
+/// Compute the overlap duration (seconds) between two [start, end] ranges.
+fn overlap_duration(a_start: f32, a_end: f32, b_start: f64, b_end: f64) -> f64 {
+    let start = a_start.max(b_start as f32) as f64;
+    let end = (a_end.min(b_end as f32)) as f64;
+    if end > start { end - start } else { 0.0 }
+}
+
+/// For each transcript chunk, assign the speaker whose segment has the
+/// longest overlap with the chunk's [audio_start_time, audio_end_time].
+/// If no segment overlaps, fall back to the nearest preceding speaker.
+pub fn align_transcripts_with_speakers(
+    chunks: Vec<TranscriptChunkForAlignment>,
+    segments: &[SpeakerSegment],
+) -> Vec<TranscriptChunkForAlignment> {
+    if segments.is_empty() {
+        return chunks;
+    }
+
+    // Pre-sort segments by start time for the "nearest preceding" fallback.
+    let mut sorted_segments: Vec<&SpeakerSegment> = segments.iter().collect();
+    sorted_segments.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap());
+
+    chunks
+        .into_iter()
+        .map(|mut chunk| {
+            // Find the segment with the longest overlap.
+            let mut best_speaker: Option<i32> = None;
+            let mut best_overlap: f64 = 0.0;
+
+            for seg in &sorted_segments {
+                let ov = overlap_duration(seg.start, seg.end, chunk.audio_start_time, chunk.audio_end_time);
+                if ov > best_overlap {
+                    best_overlap = ov;
+                    best_speaker = Some(seg.speaker);
+                }
+            }
+
+            if best_speaker.is_some() {
+                chunk.speaker = best_speaker;
+            } else {
+                // Fallback: nearest preceding speaker by start time.
+                let mut fallback: Option<i32> = None;
+                for seg in &sorted_segments {
+                    if (seg.start as f64) <= chunk.audio_start_time {
+                        fallback = Some(seg.speaker);
+                    } else {
+                        break; // sorted by start, no later segment qualifies as "preceding"
+                    }
+                }
+                chunk.speaker = fallback;
+            }
+            chunk
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chunk(id: &str, start: f64, end: f64) -> TranscriptChunkForAlignment {
+        TranscriptChunkForAlignment {
+            id: id.to_string(),
+            audio_start_time: start,
+            audio_end_time: end,
+            speaker: None,
+        }
+    }
+
+    fn seg(start: f32, end: f32, speaker: i32) -> SpeakerSegment {
+        SpeakerSegment { start, end, speaker }
+    }
+
+    #[test]
+    fn test_single_chunk_inside_one_speaker_segment() {
+        let chunks = vec![chunk("c1", 5.0, 7.0)];
+        let segments = vec![
+            seg(0.0, 6.0, 0),
+            seg(6.0, 10.0, 1),
+        ];
+        let result = align_transcripts_with_speakers(chunks, &segments);
+        // Chunk [5,7] overlaps seg[0,6] for 1s, seg[6,10] for 1s -> tie -> first wins (speaker 0).
+        assert_eq!(result[0].speaker, Some(0));
+    }
+
+    #[test]
+    fn test_chunk_clearly_inside_second_speaker() {
+        let chunks = vec![chunk("c1", 7.0, 9.0)];
+        let segments = vec![
+            seg(0.0, 6.0, 0),
+            seg(6.0, 10.0, 1),
+        ];
+        let result = align_transcripts_with_speakers(chunks, &segments);
+        assert_eq!(result[0].speaker, Some(1));
+    }
+
+    #[test]
+    fn test_chunk_with_no_overlap_uses_preceding_speaker() {
+        // Chunk in a gap between two segments; fallback picks nearest preceding.
+        let chunks = vec![chunk("c1", 5.5, 5.8)]; // in the 0.5s gap
+        let segments = vec![
+            seg(0.0, 5.0, 0),   // preceding speaker 0
+            seg(6.0, 10.0, 1),
+        ];
+        let result = align_transcripts_with_speakers(chunks, &segments);
+        assert_eq!(result[0].speaker, Some(0));
+    }
+
+    #[test]
+    fn test_no_segments_leaves_speaker_none() {
+        let chunks = vec![chunk("c1", 1.0, 2.0)];
+        let segments = vec![];
+        let result = align_transcripts_with_speakers(chunks, &segments);
+        assert_eq!(result[0].speaker, None);
+    }
+
+    #[test]
+    fn test_multiple_chunks_assign_independently() {
+        let chunks = vec![
+            chunk("c1", 1.0, 2.0),
+            chunk("c2", 8.0, 9.0),
+        ];
+        let segments = vec![
+            seg(0.0, 5.0, 0),
+            seg(5.0, 10.0, 1),
+        ];
+        let result = align_transcripts_with_speakers(chunks, &segments);
+        assert_eq!(result[0].speaker, Some(0));
+        assert_eq!(result[1].speaker, Some(1));
+    }
+
+    #[test]
+    fn test_chunk_before_all_segments_uses_none_fallback() {
+        // No preceding segment exists -> speaker stays None.
+        let chunks = vec![chunk("c1", 0.0, 0.5)];
+        let segments = vec![seg(1.0, 5.0, 0)];
+        let result = align_transcripts_with_speakers(chunks, &segments);
+        assert_eq!(result[0].speaker, None);
+    }
+}
