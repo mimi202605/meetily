@@ -1,6 +1,6 @@
 [package]
 name = "meetily"
-version = "0.4.0"
+version = "1.2.0"
 description = "A Tauri App for meeting minutes"
 authors = ["Sujith S"]
 license = "MIT"
@@ -13,6 +13,10 @@ rust-version = "1.77"
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "新际审会议助手"
+path = "src/main.rs"
 
 
 # Hardware acceleration features for whisper-rs
@@ -67,7 +71,6 @@ serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 once_cell = "1.17.1"
 uuid = { version = "1.0", features = ["v4", "serde"] }
-posthog-rs = "0.3.7"
 
 # Cross-platform audio capture
 cpal = "0.15.3"
@@ -103,7 +106,8 @@ futures-util = "0.3"
 silero_rs = { git = "https://github.com/emotechlab/silero-rs", rev = "26a6460", package = "silero" }
 
 # Parakeet (ONNX-based fast transcription) dependencies
-ort = { version = "2.0.0-rc.10" }  # ONNX Runtime for Parakeet models
+ort = { version = "2.0.0-rc.10" }
+sherpa-onnx = { version = "1.13.3", default-features = false, features = ["shared"] }  # Pure Rust ASR via ONNX Runtime (SenseVoice, Paraformer) - use shared DLL to avoid MT/MD CRT conflict with whisper-rs
 thiserror = "2.0.16"                # Error handling for Parakeet
 
 # Async
@@ -152,7 +156,6 @@ tauri-plugin-fs = "2.4.0"
 tauri-plugin-dialog = "2.3.0"
 tauri-plugin-store = "2.4.0"
 tauri-plugin-notification = "2.3.1"
-tauri-plugin-updater = "2.3.0"
 tauri-plugin-process = "2.3.0"
 
 # Desktop-only single instance guard
