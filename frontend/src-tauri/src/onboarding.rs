@@ -19,7 +19,8 @@ pub struct OnboardingStatus {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ModelStatus {
-    pub parakeet: String,  // "downloaded" | "not_downloaded" | "downloading"
+    #[serde(alias = "parakeet")]  // backward compat with old onboarding status files
+    pub whisper: String,  // "downloaded" | "not_downloaded" | "downloading"
     pub summary: String,   // Generic field for summary model (Qwen 3.5 or legacy Gemma variants)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_summary_model: Option<String>,
@@ -32,7 +33,7 @@ impl Default for OnboardingStatus {
             completed: false,
             current_step: 1,
             model_status: ModelStatus {
-                parakeet: "not_downloaded".to_string(),
+                whisper: "not_downloaded".to_string(),
                 summary: "not_downloaded".to_string(),  // Changed from gemma
                 selected_summary_model: None,
             },
@@ -191,16 +192,16 @@ pub async fn complete_onboarding<R: Runtime>(
     }
     info!("Saved builtin-ai model config: model={}", model);
 
-    // Save transcription model config (parakeet provider) - always parakeet
+    // Save transcription model config (sherpaAsr provider) - default is SenseVoice-Small
     if let Err(e) = SettingsRepository::save_transcript_config(
         pool,
-        "parakeet",
-        crate::config::DEFAULT_PARAKEET_MODEL,
+        "sherpaAsr",
+        crate::config::DEFAULT_SHERPA_ASR_MODEL,
     ).await {
         error!("Failed to save transcription model config: {}", e);
         return Err(format!("Failed to save transcription model config: {}", e));
     }
-    info!("Saved transcription model config: provider=parakeet, model={}", crate::config::DEFAULT_PARAKEET_MODEL);
+    info!("Saved transcription model config: provider=sherpaAsr, model={}", crate::config::DEFAULT_SHERPA_ASR_MODEL);
 
     // Step 2: Only NOW mark onboarding as complete (after DB operations succeed)
     let mut status = load_onboarding_status(&app)
@@ -208,8 +209,8 @@ pub async fn complete_onboarding<R: Runtime>(
         .map_err(|e| format!("Failed to load onboarding status: {}", e))?;
 
     status.completed = true;
-    status.current_step = 4; // Max step (4 on macOS with permissions, 3 on other platforms)
-    status.model_status.parakeet = "downloaded".to_string();
+    status.current_step = if cfg!(target_os = "macos") { 4 } else { 3 };
+    status.model_status.whisper = "downloaded".to_string();
     status.model_status.summary = "downloaded".to_string();
     status.model_status.selected_summary_model = Some(model.clone());
 
@@ -233,7 +234,7 @@ mod tests {
                 "completed": true,
                 "current_step": 4,
                 "model_status": {
-                    "parakeet": "downloaded",
+                    "whisper": "downloaded",
                     "summary": "downloaded"
                 },
                 "last_updated": "2026-05-30T00:00:00Z"
