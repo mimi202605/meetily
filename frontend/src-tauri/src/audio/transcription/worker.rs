@@ -36,6 +36,9 @@ pub struct TranscriptUpdate {
     pub audio_start_time: f64, // Seconds from recording start (e.g., 125.3)
     pub audio_end_time: f64,   // Seconds from recording start (e.g., 128.6)
     pub duration: f64,          // Segment duration in seconds (e.g., 3.3)
+    /// Speaker ID (None during real-time ASR; set by post-processing diarization).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<i32>,
 }
 
 // NOTE: get_transcript_history and get_recording_meeting_name functions
@@ -82,6 +85,7 @@ pub fn start_transcription_task<R: Runtime>(
                 TranscriptionEngine::Whisper(e) => TranscriptionEngine::Whisper(e.clone()),
                 TranscriptionEngine::Parakeet(e) => TranscriptionEngine::Parakeet(e.clone()),
                 TranscriptionEngine::Provider(p) => TranscriptionEngine::Provider(p.clone()),
+                TranscriptionEngine::SherpaAsr(e) => TranscriptionEngine::SherpaAsr(e.clone()),
             };
             let app_clone = app.clone();
             let work_receiver_clone = work_receiver.clone();
@@ -156,6 +160,7 @@ pub fn start_transcription_task<R: Runtime>(
                                     let confidence_threshold = match &engine_clone {
                                         TranscriptionEngine::Whisper(_) | TranscriptionEngine::Provider(_) => 0.3,
                                         TranscriptionEngine::Parakeet(_) => 0.0, // Parakeet has no confidence, accept all
+                                        TranscriptionEngine::SherpaAsr(_) => 0.0, // Sherpa-ONNX has no confidence, accept all
                                     };
 
                                     let confidence_str = match confidence_opt {
@@ -215,9 +220,10 @@ pub fn start_transcription_task<R: Runtime>(
                                             confidence: confidence_opt.unwrap_or(0.85), // Default for providers without confidence
                                             // NEW: Recording-relative timestamps for sync
                                             audio_start_time,
-                                            audio_end_time,
-                                            duration: chunk_duration,
-                                        };
+                            audio_end_time,
+                            duration: chunk_duration,
+                            speaker: None,
+                        };
 
                                         if let Err(e) = app_clone.emit("transcript-update", &update)
                                         {
@@ -521,7 +527,46 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
                 }
             }
         }
-        TranscriptionEngine::Provider(provider) => {
+        TranscriptionEngine::SherpaAsr(sherpa_engine) => {
+            // Pure Rust ONNX-based ASR (SenseVoice / Paraformer)
+            let language = crate::get_language_preference_internal();
+
+            match sherpa_engine.transcribe_audio(&speech_samples, 16000, language) {
+                Ok(text) => {
+                    let cleaned_text = text.trim().to_string();
+                    if cleaned_text.is_empty() {
+                        return Ok((String::new(), None, false));
+                    }
+
+                    info!(
+                        "Sherpa-ASR transcription complete for chunk {}: '{}'",
+                        chunk.chunk_id, cleaned_text
+                    );
+
+                    // Sherpa-ONNX doesn't provide confidence or partial results
+                    Ok((cleaned_text, None, false))
+                }
+                Err(e) => {
+                    error!(
+                        "Sherpa-ASR transcription failed for chunk {}: {}",
+                        chunk.chunk_id, e
+                    );
+
+                    let transcription_error = TranscriptionError::EngineFailed(e.to_string());
+                    let _ = app.emit(
+                        "transcription-error",
+                        &serde_json::json!({
+                            "error": transcription_error.to_string(),
+                            "userMessage": format!("Transcription failed: {}", transcription_error),
+                            "actionable": false
+                        }),
+                    );
+
+                    Err(transcription_error)
+                }
+            }
+        }
+                TranscriptionEngine::Provider(provider) => {
             // NEW: Trait-based provider (clean, unified interface)
             let language = crate::get_language_preference_internal();
 
