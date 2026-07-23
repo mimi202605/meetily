@@ -45,6 +45,7 @@ export function TranscriptPanel({
       endTime: t.audio_end_time,
       text: t.text,
       confidence: t.confidence,
+      speaker: t.speaker,
     })),
     [transcripts]
   );
@@ -62,11 +63,11 @@ export function TranscriptPanel({
                     variant="outline"
                     size="sm"
                     onClick={copyTranscript}
-                    title="Copy Transcript"
+                    title="复制转录文本"
                   >
                     <Copy />
                     <span className='hidden md:inline'>
-                      Copy
+                      复制
                     </span>
                   </Button>
                 )}
@@ -75,11 +76,11 @@ export function TranscriptPanel({
                     variant="outline"
                     size="sm"
                     onClick={() => showModal('languageSettings')}
-                    title="Language"
+                    title="语言"
                   >
                     <GlobeIcon />
                     <span className='hidden md:inline'>
-                      Language
+                      语言
                     </span>
                   </Button>
                 }

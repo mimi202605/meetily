@@ -63,12 +63,31 @@ function cleanStopWords(text: string): string {
     return cleanedText.replace(/\s+/g, ' ').trim();
 }
 
+// Speaker color palette: each speaker gets a distinct color.
+const SPEAKER_COLORS = [
+    'bg-blue-600',
+    'bg-green-600',
+    'bg-orange-600',
+    'bg-purple-600',
+    'bg-pink-600',
+    'bg-teal-600',
+];
+
+function getSpeakerColor(speaker: number): string {
+    return SPEAKER_COLORS[speaker % SPEAKER_COLORS.length];
+}
+
+function getSpeakerLabel(speaker: number): string {
+    return `说话人 ${speaker + 1}`;
+}
+
 // Memoized transcript segment component
 const TranscriptSegment = memo(function TranscriptSegment({
     id,
     timestamp,
     text,
     confidence,
+    speaker,
     isStreaming,
     showConfidence,
 }: {
@@ -76,10 +95,12 @@ const TranscriptSegment = memo(function TranscriptSegment({
     timestamp: number;
     text: string;
     confidence?: number;
+    speaker?: number;
     isStreaming: boolean;
     showConfidence: boolean;
 }) {
-    const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
+    const displayText = cleanStopWords(text) || (text.trim() === '' ? '[静音]' : text);
+    const hasSpeaker = speaker !== undefined && speaker !== null;
 
     return (
         <div id={`segment-${id}`} className="mb-3">
@@ -97,6 +118,15 @@ const TranscriptSegment = memo(function TranscriptSegment({
                     </TooltipContent>
                 </Tooltip>
                 <div className="flex-1">
+                    {hasSpeaker && (
+                        <div className="flex items-center gap-2 mb-1">
+                            <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-white ${getSpeakerColor(speaker!)}`}
+                            >
+                                {getSpeakerLabel(speaker!)}
+                            </span>
+                        </div>
+                    )}
                     {isStreaming ? (
                         <div className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2">
                             <p className="text-base text-gray-800 leading-relaxed">{displayText}</p>
@@ -249,16 +279,16 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                 <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-blue-500 animate-pulse'}`}></div>
                             </div>
                             <p className="text-sm text-gray-600">
-                                {isPaused ? 'Recording paused' : 'Listening for speech...'}
+                                {isPaused ? '录音已暂停' : '正在聆听语音...'}
                             </p>
                             <p className="text-xs mt-1 text-gray-400">
-                                {isPaused ? 'Click resume to continue recording' : 'Speak to see live transcription'}
+                                {isPaused ? '点击恢复以继续录音' : '说话以查看实时转录'}
                             </p>
                         </>
                     ) : (
                         <>
-                            <p className="text-lg font-semibold">Welcome to meetily!</p>
-                            <p className="text-xs mt-1">Start recording to see live transcription</p>
+                            <p className="text-lg font-semibold">欢迎使用新际审会议助手</p>
+                            <p className="text-xs mt-1">开始录音以查看实时转录</p>
                         </>
                     )}
                 </motion.div>
@@ -294,6 +324,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         timestamp={segment.timestamp}
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
+                                        speaker={segment.speaker}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />
@@ -308,11 +339,11 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             {isLoadingMore ? (
                                 <div className="flex items-center gap-2 text-gray-500">
                                     <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
+                                    <span className="text-sm">加载更多...</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
                                 <span className="text-sm text-gray-400">
-                                    Showing {loadedCount} of {totalCount} segments
+                                    显示 {loadedCount} / {totalCount} 个段落
                                 </span>
                             ) : null}
                         </div>
@@ -327,7 +358,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             className="flex items-center gap-2 mt-4 text-gray-500"
                         >
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
+                            <span className="text-sm">正在聆听...</span>
                         </motion.div>
                     )}
                 </>
@@ -350,6 +381,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         timestamp={segment.timestamp}
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
+                                        speaker={segment.speaker}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />
@@ -364,11 +396,11 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             {isLoadingMore ? (
                                 <div className="flex items-center gap-2 text-gray-500">
                                     <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
+                                    <span className="text-sm">加载更多...</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
                                 <span className="text-sm text-gray-400">
-                                    Showing {loadedCount} of {totalCount} segments
+                                    显示 {loadedCount} / {totalCount} 个段落
                                 </span>
                             ) : null}
                         </div>
@@ -383,7 +415,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             className="flex items-center gap-2 mt-4 text-gray-500"
                         >
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
+                            <span className="text-sm">正在聆听...</span>
                         </motion.div>
                     )}
                 </>

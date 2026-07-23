@@ -111,4 +111,6 @@ export interface TranscriptSegmentData {
   endTime?: number; // audio_end_time in seconds
   text: string;
   confidence?: number;
+  // Speaker ID assigned by diarization post-processing (0, 1, 2, ...).
+  speaker?: number;
 }
