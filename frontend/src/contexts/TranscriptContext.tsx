@@ -358,6 +358,85 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     };
   }, [currentMeetingId]); // Add currentMeetingId dependency
 
+  // Listen for diarization start: show processing toast.
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    const setup = async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      unlistenFn = await listen('transcript-diarization-started', () => {
+        toast.loading('正在处理说话人分离...', { id: 'diarization-loading', duration: 60000 });
+      });
+    };
+    setup();
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
+  // Listen for diarization completion: replace transcripts with speaker-labeled versions.
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    const setup = async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      unlistenFn = await listen<{
+        transcripts: Array<{
+          id: string;
+          text: string;
+          timestamp: string;
+          sequence_id: number;
+          audio_start_time: number;
+          audio_end_time: number;
+          duration: number;
+          confidence: number;
+          speaker: number | null;
+        }>;
+        num_speakers: number;
+      }>('transcript-diarized', (event) => {
+        const payload = event.payload;
+        // Map diarized segments to Transcript shape, preserving speaker field.
+        const diarized: Transcript[] = payload.transcripts.map((seg) => ({
+          id: seg.id,
+          text: seg.text,
+          timestamp: seg.timestamp,
+          sequence_id: seg.sequence_id,
+          audio_start_time: seg.audio_start_time,
+          audio_end_time: seg.audio_end_time,
+          duration: seg.duration,
+          confidence: seg.confidence,
+          speaker: seg.speaker ?? undefined,
+        }));
+        setTranscripts(diarized);
+
+        // Dismiss loading toast and show success.
+        toast.dismiss('diarization-loading');
+        toast.success(`说话人分离完成，识别到 ${payload.num_speakers} 位说话人`);
+      });
+    };
+    setup();
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
+  // Listen for diarization errors: dismiss loading and show non-blocking toast.
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    const setup = async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      unlistenFn = await listen<{ error: string }>(
+        'transcript-diarization-error',
+        () => {
+          toast.dismiss('diarization-loading');
+          toast.error('说话人分离失败，转录结果不受影响', { duration: 8000 });
+        }
+      );
+    };
+    setup();
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
   // Sync transcript history and meeting name from backend on reload
   // This fixes the issue where reloading during active recording causes state desync
   useEffect(() => {
