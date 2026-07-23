@@ -425,6 +425,11 @@ pub fn run() {
                 log::error!("Failed to create system tray: {}", e);
             }
 
+            // Initialize bundled models dir for SenseVoice (production path).
+            sherpa_asr_engine::sherpa_asr_engine::set_bundled_models_dir(_app.handle());
+            // Initialize diarization engine models dir.
+            speaker_diarization_engine::commands::set_models_directory(_app.handle());
+
             // Initialize notification system with proper defaults
             log::info!("Initializing notification system...");
             let app_for_notif = _app.handle().clone();
