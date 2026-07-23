@@ -1,15 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Mic, Sparkles, Check, Loader2, Download } from 'lucide-react';
+import { Sparkles, Check, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OnboardingContainer } from '../OnboardingContainer';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSummaryModelSizeLabel, getSummaryModelSizeMb } from '@/lib/onboarding-summary-model';
-
-const PARAKEET_MODEL = 'parakeet-tdt-0.6b-v3-int8';
 
 type DownloadStatus = 'waiting' | 'downloading' | 'completed' | 'error';
 
@@ -27,8 +25,6 @@ export function DownloadProgressStep() {
     goNext,
     selectedSummaryModel,
     recommendedSummaryModel,
-    parakeetDownloaded,
-    setParakeetDownloaded,
     summaryModelDownloaded,
     setSummaryModelDownloaded,
     startBackgroundDownloads,
@@ -36,14 +32,6 @@ export function DownloadProgressStep() {
   } = useOnboarding();
 
   const [isMac, setIsMac] = useState(false);
-
-  const [parakeetState, setParakeetState] = useState<DownloadState>({
-    status: parakeetDownloaded ? 'completed' : 'waiting',
-    progress: parakeetDownloaded ? 100 : 0,
-    downloadedMb: 0,
-    totalMb: 670,
-    speedMbps: 0,
-  });
 
   const [summaryState, setSummaryState] = useState<DownloadState>({
     status: summaryModelDownloaded ? 'completed' : 'waiting',
@@ -54,53 +42,8 @@ export function DownloadProgressStep() {
   });
 
   const [isCompleting, setIsCompleting] = useState(false);
-  const parakeetDownloadStartedRef = useRef(false);
   const summaryDownloadStartedRef = useRef(false);
-  const retryingRef = useRef(false);
   const retryingSummaryRef = useRef(false);
-
-  // Retry download handler
-  const handleRetryDownload = async () => {
-    // Prevent multiple simultaneous retries
-    if (retryingRef.current) {
-      console.log('[DownloadProgressStep] Retry already in progress, ignoring');
-      return;
-    }
-
-    console.log('[DownloadProgressStep] Retrying Parakeet download');
-    retryingRef.current = true;
-
-    // Reset error state
-    setParakeetState((prev) => ({
-      ...prev,
-      status: 'waiting',
-      error: undefined,
-      progress: 0,
-      downloadedMb: 0,
-      speedMbps: 0,
-    }));
-
-    try {
-      await invoke('parakeet_retry_download', { modelName: PARAKEET_MODEL });
-      // Progress events will update state
-    } catch (error) {
-      console.error('[DownloadProgressStep] Retry failed:', error);
-      setParakeetState((prev) => ({
-        ...prev,
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Retry failed',
-      }));
-
-      toast.error('Download retry failed', {
-        description: 'Please check your connection and try again.',
-      });
-    } finally {
-      // Allow retry again after 2 seconds
-      setTimeout(() => {
-        retryingRef.current = false;
-      }, 2000);
-    }
-  };
 
   // Retry summary download handler
   const handleRetrySummaryDownload = async () => {
@@ -139,8 +82,8 @@ export function DownloadProgressStep() {
         error: error instanceof Error ? error.message : 'Retry failed',
       }));
 
-      toast.error('Summary model download retry failed', {
-        description: 'Please check your connection and try again.',
+      toast.error('摘要模型重试下载失败', {
+        description: '请检查您的网络连接后重试。',
       });
     } finally {
       // Allow retry again after 2 seconds
@@ -164,26 +107,6 @@ export function DownloadProgressStep() {
     checkPlatform();
   }, []);
 
-  // Start the required transcription model immediately; summary readiness must not block it.
-  useEffect(() => {
-    if (parakeetDownloadStartedRef.current) return;
-    parakeetDownloadStartedRef.current = true;
-
-    if (!parakeetDownloaded) {
-      setParakeetState((prev) => ({ ...prev, status: 'downloading' }));
-    }
-
-    startBackgroundDownloads({
-      includeParakeet: true,
-      includeSummary: false,
-    }).catch((error) => {
-      console.error('Failed to start Parakeet download:', error);
-      if (!parakeetDownloaded) {
-        setParakeetState((prev) => ({ ...prev, status: 'error', error: String(error) }));
-      }
-    });
-  }, []);
-
   // Start the selected summary model only after the backend recommendation is known.
   useEffect(() => {
     if (summaryDownloadStartedRef.current) return;
@@ -192,63 +115,6 @@ export function DownloadProgressStep() {
 
     startSummaryDownload();
   }, [selectedSummaryModel]);
-
-  // Listen to Parakeet download progress
-  useEffect(() => {
-    const unlistenProgress = listen<{
-      modelName: string;
-      progress: number;
-      downloaded_mb?: number;
-      total_mb?: number;
-      speed_mbps?: number;
-      status?: string;
-    }>('parakeet-model-download-progress', (event) => {
-      const { modelName, progress, downloaded_mb, total_mb, speed_mbps, status } = event.payload;
-      if (modelName === PARAKEET_MODEL) {
-        setParakeetState((prev) => ({
-          ...prev,
-          status: status === 'completed' ? 'completed' : 'downloading',
-          progress,
-          downloadedMb: downloaded_mb ?? prev.downloadedMb,
-          totalMb: total_mb ?? prev.totalMb,
-          speedMbps: speed_mbps ?? prev.speedMbps,
-        }));
-
-        if (status === 'completed' || progress >= 100) {
-          setParakeetDownloaded(true);
-        }
-      }
-    });
-
-    const unlistenComplete = listen<{ modelName: string }>(
-      'parakeet-model-download-complete',
-      (event) => {
-        if (event.payload.modelName === PARAKEET_MODEL) {
-          setParakeetState((prev) => ({ ...prev, status: 'completed', progress: 100 }));
-          setParakeetDownloaded(true);
-        }
-      }
-    );
-
-    const unlistenError = listen<{ modelName: string; error: string }>(
-      'parakeet-model-download-error',
-      (event) => {
-        if (event.payload.modelName === PARAKEET_MODEL) {
-          setParakeetState((prev) => ({
-            ...prev,
-            status: 'error',
-            error: event.payload.error,
-          }));
-        }
-      }
-    );
-
-    return () => {
-      unlistenProgress.then((fn) => fn());
-      unlistenComplete.then((fn) => fn());
-      unlistenError.then((fn) => fn());
-    };
-  }, []);
 
   // Listen to Summary Model download progress (always downloading for builtin-ai)
   useEffect(() => {
@@ -329,37 +195,13 @@ export function DownloadProgressStep() {
   };
 
   const handleContinue = async () => {
-    // Verify actual model availability (catches state drift)
-    try {
-      await invoke('parakeet_init');
-      const actuallyAvailable = await invoke<boolean>('parakeet_has_available_models');
+    // Check if download is complete for toast notification
+    const downloadsComplete = summaryState.status === 'completed';
 
-      if (actuallyAvailable && !parakeetDownloaded) {
-        console.log('[DownloadProgressStep] Model available but state not updated');
-        setParakeetDownloaded(true);
-        setParakeetState((prev) => ({
-          ...prev,
-          status: 'completed',
-          progress: 100,
-        }));
-      } else if (!actuallyAvailable && parakeetState.status === 'error') {
-        toast.error('Transcription engine required', {
-          description: 'Please retry the download before continuing.',
-        });
-        return;
-      }
-    } catch (error) {
-      console.warn('[DownloadProgressStep] Failed to verify model:', error);
-    }
-
-    // Check if downloads are complete for toast notification
-    const downloadsComplete = parakeetState.status === 'completed' &&
-      summaryState.status === 'completed';
-
-    // Show toast if downloads still in progress
+    // Show toast if download still in progress
     if (!downloadsComplete) {
-      toast.info('Downloads will continue in the background', {
-        description: 'You can start using the app. Recording will be available once speech recognition is ready.',
+      toast.info('下载将在后台继续', {
+        description: '您可以开始使用应用。摘要引擎就绪后即可生成摘要。',
         duration: 5000,
       });
     }
@@ -379,8 +221,8 @@ export function DownloadProgressStep() {
         window.location.reload();
       } catch (error) {
         console.error('Failed to complete onboarding:', error);
-        toast.error('Failed to complete setup', {
-          description: 'Please try again.',
+        toast.error('完成设置失败', {
+          description: '请重试。',
         });
         setIsCompleting(false);
       }
@@ -407,7 +249,7 @@ export function DownloadProgressStep() {
         </div>
         <div>
           {state.status === 'waiting' && (
-            <span className="text-sm text-gray-500">Waiting...</span>
+            <span className="text-sm text-gray-500">等待中...</span>
           )}
           {state.status === 'downloading' && (
             <Loader2 className="w-5 h-5 text-gray-700 animate-spin" />
@@ -418,7 +260,7 @@ export function DownloadProgressStep() {
             </div>
           )}
           {state.status === 'error' && (
-            <span className="text-sm text-red-500">Failed</span>
+            <span className="text-sm text-red-500">失败</span>
           )}
         </div>
       </div>
@@ -452,20 +294,18 @@ export function DownloadProgressStep() {
 
       {state.status === 'error' && state.error && (
         <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-sm text-red-600 font-medium">Download Error</p>
+          <p className="text-sm text-red-600 font-medium">下载错误</p>
           <p className="text-xs text-red-500 mt-1">{state.error}</p>
-          {(title === 'Transcription Engine' || title === 'Summary Engine') && (
-            <button
-              onClick={title === 'Transcription Engine' ? handleRetryDownload : handleRetrySummaryDownload}
-              className="mt-3 w-full h-9 px-4 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-md transition-colors flex items-center justify-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Try Again
-            </button>
-          )}
+          <button
+            onClick={handleRetrySummaryDownload}
+            className="mt-3 w-full h-9 px-4 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-md transition-colors flex items-center justify-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            重试
+          </button>
         </div>
       )}
     </div>
@@ -473,8 +313,8 @@ export function DownloadProgressStep() {
 
   return (
     <OnboardingContainer
-      title="Getting things ready"
-      description="You can start using Meetily after downloading the Transcription Engine."
+      title="正在准备"
+      description="下载摘要引擎后，您就可以开始使用 新际审会议助手。转录引擎已内置。"
       step={3}
       totalSteps={isMac ? 4 : 3}
     >
@@ -482,14 +322,7 @@ export function DownloadProgressStep() {
         {/* Download Cards */}
         <div className="w-full max-w-lg space-y-4">
           {renderDownloadCard(
-            'Transcription Engine',
-            <Mic className="w-5 h-5 text-gray-600" />,
-            parakeetState,
-            '~670 MB'
-          )}
-
-          {renderDownloadCard(
-            'Summary Engine',
+            '摘要引擎',
             <Sparkles className="w-5 h-5 text-gray-600" />,
             summaryState,
             getSummaryModelSizeLabel(selectedSummaryModel || recommendedSummaryModel),
@@ -497,9 +330,9 @@ export function DownloadProgressStep() {
           )}
         </div>
 
-        {/* Info Message - Only show when Parakeet is downloaded */}
+        {/* Info Message - Only show when summary model is downloading */}
         <AnimatePresence>
-          {parakeetDownloaded && !summaryModelDownloaded && (
+          {!summaryModelDownloaded && summaryState.status === 'downloading' && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -510,9 +343,9 @@ export function DownloadProgressStep() {
               <div className="flex items-start gap-3">
                 <Download className="w-5 h-5 text-gray-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium">You can continue while this finishes</p>
+                  <p className="font-medium">您可以在此完成前继续</p>
                   <p className="text-gray-700 mt-1">
-                    Download will continue in the background.
+                    下载将在后台继续进行。
                   </p>
                 </div>
               </div>
@@ -524,13 +357,13 @@ export function DownloadProgressStep() {
         <div className="w-full max-w-xs">
           <Button
             onClick={handleContinue}
-            disabled={!parakeetDownloaded || isCompleting}
+            disabled={isCompleting}
             className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {(isCompleting || !parakeetDownloaded) ? (
+            {isCompleting ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
-              'Continue'
+              '继续'
             )}
           </Button>
         </div>
