@@ -29,13 +29,8 @@ export function SetupOverviewStep() {
   const steps = [
     {
       number: 1,
-      type: 'transcription',
-      title: 'Download Transcription Engine',
-    },
-    {
-      number: 2,
       type: 'summarization',
-      title: 'Download Summarization Engine',
+      title: '下载摘要引擎',
     },
   ];
 
@@ -45,8 +40,8 @@ export function SetupOverviewStep() {
 
   return (
     <OnboardingContainer
-      title="Setup Overview"
-      description="Meetily requires that you download the Transcription & Summarization AI models for the software to work."
+      title="设置概览"
+      description="新际审会议助手 需要您下载摘要 AI 模型才能正常工作。转录引擎已内置，无需下载。"
       step={2}
       totalSteps={isMac ? 4 : 3}
     >
@@ -62,7 +57,7 @@ export function SetupOverviewStep() {
                 >
                   <div className="flex-1 ml-1">
                     <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                        Step {step.number} :  {step.title}
+                        第 {step.number} 步：{step.title}
 
                         {step.type === "summarization" && (
                             <TooltipProvider>
@@ -73,8 +68,8 @@ export function SetupOverviewStep() {
                                 </button>
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-xs text-sm">
-                                You can also select external AI providers like OpenAI, Claude, or
-                                Ollama for summary generation in settings.
+                                您也可以在设置中选择外部 AI 提供商（如 OpenAI、Claude 或
+                                Ollama）来生成摘要。
                                 </TooltipContent>
                             </Tooltip>
                             </TooltipProvider>
@@ -94,18 +89,8 @@ export function SetupOverviewStep() {
             onClick={handleContinue}
             className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white"
           >
-            Let's Go
+            开始吧
           </Button>
-          <div className="text-center">
-            <a
-              href="https://github.com/Zackriya-Solutions/meeting-minutes"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-gray-600 hover:underline"
-            >
-              Report issues on GitHub
-            </a>
-          </div>
         </div>
       </div>
     </OnboardingContainer>
