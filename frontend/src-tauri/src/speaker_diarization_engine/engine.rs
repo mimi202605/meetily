@@ -29,7 +29,7 @@ pub struct SpeakerSegment {
 /// Bundled model filename constants (relative to bundled models dir).
 pub const PYANNOTE_MODEL_DIR: &str = "sherpa-onnx-pyannote-segmentation-3-0";
 pub const PYANNOTE_MODEL_FILE: &str = "model.onnx";
-pub const ERES2NET_MODEL_FILE: &str = "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx";
+pub const CAMPLUS_MODEL_FILE: &str = "3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx";
 
 /// Speaker diarization engine wrapping sherpa-onnx OfflineSpeakerDiarization.
 pub struct SpeakerDiarizationEngine {
@@ -45,7 +45,7 @@ impl SpeakerDiarizationEngine {
         }
     }
 
-    /// Bundled diarization models directory (pyannote + eres2net).
+    /// Bundled diarization models directory (pyannote + camplus).
     fn diarization_models_dir(&self) -> PathBuf {
         self.models_dir.join("speaker-diarization")
     }
@@ -57,23 +57,23 @@ impl SpeakerDiarizationEngine {
             .join(PYANNOTE_MODEL_FILE)
     }
 
-    /// ERes2Net speaker embedding model path.
-    fn eres2net_model_path(&self) -> PathBuf {
-        self.diarization_models_dir().join(ERES2NET_MODEL_FILE)
+    /// CAM++ speaker embedding model path.
+    fn camplus_model_path(&self) -> PathBuf {
+        self.diarization_models_dir().join(CAMPLUS_MODEL_FILE)
     }
 
     /// Check that both bundled model files exist.
     pub fn is_ready(&self) -> bool {
         let pyannote = self.pyannote_model_path();
-        let eres2net = self.eres2net_model_path();
-        let ready = pyannote.exists() && eres2net.exists();
+        let camplus = self.camplus_model_path();
+        let ready = pyannote.exists() && camplus.exists();
         if !ready {
             info!(
-                "[Diarization] Models not ready: pyannote={} exists={}, eres2net={} exists={}",
+                "[Diarization] Models not ready: pyannote={} exists={}, camplus={} exists={}",
                 pyannote.display(),
                 pyannote.exists(),
-                eres2net.display(),
-                eres2net.exists()
+                camplus.display(),
+                camplus.exists()
             );
         }
         ready
@@ -87,12 +87,12 @@ impl SpeakerDiarizationEngine {
         }
 
         let pyannote_path = self.pyannote_model_path();
-        let eres2net_path = self.eres2net_model_path();
+        let camplus_path = self.camplus_model_path();
 
         info!(
-            "[Diarization] Loading models: pyannote={}, eres2net={}",
+            "[Diarization] Loading models: pyannote={}, camplus={}",
             pyannote_path.display(),
-            eres2net_path.display()
+            camplus_path.display()
         );
         let start = std::time::Instant::now();
 
@@ -106,7 +106,7 @@ impl SpeakerDiarizationEngine {
         };
 
         let embedding = SpeakerEmbeddingExtractorConfig {
-            model: Some(eres2net_path.to_string_lossy().to_string()),
+            model: Some(camplus_path.to_string_lossy().to_string()),
             num_threads: num_cpus(),
             debug: false,
             provider: Some("cpu".to_string()),
@@ -115,7 +115,7 @@ impl SpeakerDiarizationEngine {
         // num_clusters = 0 => auto-detect speakers via clustering threshold.
         let clustering = FastClusteringConfig {
             num_clusters: 0,
-            threshold: 0.5,
+            threshold: 0.4,  // 降低阈值更宽松合并同一说话人（CAM++ 配合）
         };
 
         let config = OfflineSpeakerDiarizationConfig {

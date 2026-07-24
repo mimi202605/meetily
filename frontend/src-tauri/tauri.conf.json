@@ -98,7 +98,7 @@
       "sherpa-libs/models/sense-voice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx": "models/sense-voice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx",
       "sherpa-libs/models/sense-voice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt": "models/sense-voice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt",
       "sherpa-libs/models/speaker-diarization/sherpa-onnx-pyannote-segmentation-3-0/model.onnx": "models/speaker-diarization/sherpa-onnx-pyannote-segmentation-3-0/model.onnx",
-      "sherpa-libs/models/speaker-diarization/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx": "models/speaker-diarization/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
+      "sherpa-libs/models/speaker-diarization/3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx": "models/speaker-diarization/3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx"
     },
     "externalBin": [
       "binaries/llama-helper",
