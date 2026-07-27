@@ -137,6 +137,12 @@ pub struct MeetingTranscript {
     pub audio_end_time: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<f64>,
+    /// Speaker ID assigned by diarization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<i32>,
+    /// Speaker name from voiceprint matching or manual assignment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_name: Option<String>,
 }
 
 /// Meeting metadata without transcripts (for pagination)
@@ -188,6 +194,12 @@ pub struct TranscriptSegment {
     pub audio_end_time: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<f64>,
+    /// Speaker ID assigned by diarization (None until post-processing runs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<i32>,
+    /// Speaker name from voiceprint matching or manual assignment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -632,10 +644,10 @@ pub async fn api_get_transcript_config<R: Runtime>(
             }
         }
         Ok(None) => {
-            log_info!("No transcript config found, returning default.");
+            log_info!("No transcript config found, returning default (sherpaAsr/SenseVoice).");
             Ok(Some(TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                provider: "sherpaAsr".to_string(),
+                model: crate::sherpa_asr_engine::sherpa_asr_engine::DEFAULT_MODEL_NAME.to_string(),
                 api_key: None,
             }))
         }
@@ -878,6 +890,8 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
                     audio_start_time: t.audio_start_time,
                     audio_end_time: t.audio_end_time,
                     duration: t.duration,
+                    speaker: t.speaker.and_then(|s| s.parse::<i32>().ok()),
+                    speaker_name: t.speaker_name,
                 })
                 .collect::<Vec<_>>();
 

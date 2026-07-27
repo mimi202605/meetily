@@ -62,8 +62,20 @@ export function TranscriptPanel({
       text: t.text,
       confidence: t.confidence,
       speaker: t.speaker,
+      speaker_name: t.speaker_name,
     }));
   }, [transcripts, usePagination, segments]);
+
+  // Unique speaker IDs from transcripts (for manual voiceprint assignment)
+  const uniqueSpeakerIds = useMemo(() => {
+    const ids = new Set<number>();
+    convertedSegments.forEach(s => {
+      if (s.speaker !== undefined && s.speaker !== null) {
+        ids.add(s.speaker);
+      }
+    });
+    return Array.from(ids).sort((a, b) => a - b);
+  }, [convertedSegments]);
 
   return (
     <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-gray-200 bg-white flex-col relative shrink-0">
@@ -76,6 +88,7 @@ export function TranscriptPanel({
           meetingId={meetingId}
           meetingFolderPath={meetingFolderPath}
           onRefetchTranscripts={onRefetchTranscripts}
+          uniqueSpeakerIds={uniqueSpeakerIds}
         />
       </div>
 

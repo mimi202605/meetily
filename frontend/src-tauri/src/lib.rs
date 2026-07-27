@@ -50,6 +50,10 @@ pub mod openrouter;
 pub mod parakeet_engine;
 pub mod sherpa_asr_engine;
 pub mod speaker_diarization_engine;
+pub mod transcript_postprocess;
+pub mod subtitle_export;
+pub mod hotword_correction;
+pub mod voiceprint_engine;
 pub mod state;
 pub mod summary;
 pub mod tray;
@@ -430,6 +434,14 @@ pub fn run() {
             // Initialize diarization engine models dir.
             speaker_diarization_engine::commands::set_models_directory(_app.handle());
 
+            // Initialize voiceprint engine models dir (shares CAM++ with diarization).
+            {
+                let vp_models_dir = _app.handle().path().resource_dir()
+                    .map(|rd| rd.join("models"))
+                    .unwrap_or_else(|_| std::path::PathBuf::from("sherpa-libs/models"));
+                voiceprint_engine::engine::set_models_directory(vp_models_dir);
+            }
+
             // Initialize notification system with proper defaults
             log::info!("Initializing notification system...");
             let app_for_notif = _app.handle().clone();
@@ -580,6 +592,23 @@ pub fn run() {
             speaker_diarization_engine::commands::speaker_diarization_init,
             speaker_diarization_engine::commands::speaker_diarization_is_ready,
             speaker_diarization_engine::commands::speaker_diarization_process,
+            speaker_diarization_engine::commands::run_speaker_diarization,
+            // Voiceprint (speaker recognition) commands
+            voiceprint_engine::commands::voiceprint_list,
+            voiceprint_engine::commands::voiceprint_list_meetings_with_speakers,
+            voiceprint_engine::commands::voiceprint_extract_sample,
+            voiceprint_engine::commands::voiceprint_register,
+            voiceprint_engine::commands::voiceprint_delete,
+            voiceprint_engine::commands::voiceprint_get_meeting_names,
+            voiceprint_engine::commands::voiceprint_assign_speaker,
+            voiceprint_engine::commands::voiceprint_match_meeting,
+            // Subtitle export commands
+            subtitle_export::commands::export_subtitle,
+            // Hotword correction commands
+            hotword_correction::commands::get_hotwords,
+            hotword_correction::commands::add_hotword,
+            hotword_correction::commands::delete_hotword,
+            hotword_correction::commands::correct_transcript_with_hotwords,
             // Parallel processing commands
             whisper_engine::parallel_commands::initialize_parallel_processor,
             whisper_engine::parallel_commands::start_parallel_processing,

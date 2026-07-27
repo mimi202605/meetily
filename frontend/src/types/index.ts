@@ -19,6 +19,7 @@ export interface Transcript {
   // Speaker ID assigned by diarization post-processing (0, 1, 2, ...).
   // Undefined during real-time ASR; set after recording stops.
   speaker?: number;
+  speaker_name?: string;
 }
 
 export interface TranscriptUpdate {
@@ -34,6 +35,7 @@ export interface TranscriptUpdate {
   audio_end_time: number;   // Seconds from recording start
   duration: number;          // Segment duration in seconds
   speaker?: number;
+  speaker_name?: string;
 }
 
 export interface Block {
@@ -113,4 +115,5 @@ export interface TranscriptSegmentData {
   confidence?: number;
   // Speaker ID assigned by diarization post-processing (0, 1, 2, ...).
   speaker?: number;
+  speaker_name?: string;
 }

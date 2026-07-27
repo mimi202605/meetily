@@ -39,7 +39,7 @@ impl ImportGuard {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
-            return Err("Import already in progress".to_string());
+            return Err("导入正在进行中".to_string());
         }
         Ok(ImportGuard)
     }
@@ -265,19 +265,18 @@ pub async fn start_import<R: Runtime>(
     // Reset cancellation flag
     IMPORT_CANCELLED.store(false, Ordering::SeqCst);
 
-    let use_parakeet = provider.as_deref() == Some("parakeet");
     let result = run_import(
         app.clone(),
         source_path,
         title,
         language,
         model,
-        provider,
+        provider.clone(),
     )
     .await;
 
     // Unload the engine after the batch job (success, failure, or cancellation)
-    super::common::unload_engine_after_batch(use_parakeet).await;
+    super::common::unload_engine_after_batch(provider.as_deref()).await;
 
     // Guard will automatically clear flag on drop
     // No need for manual: IMPORT_IN_PROGRESS.store(false, Ordering::SeqCst);
@@ -323,15 +322,37 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Source file not found: {}", source.display()));
     }
 
+    // Resolve provider and model from saved config if not explicitly provided
+    let (provider, model) = if provider.is_none() {
+        match crate::api::api::api_get_transcript_config(
+            app.clone(),
+            app.clone().state(),
+            None,
+        ).await {
+            Ok(Some(config)) => {
+                info!("📝 Using transcript config - provider: {}, model: {}", config.provider, config.model);
+                (Some(config.provider), model.or(Some(config.model)))
+            }
+            _ => {
+                info!("📝 No transcript config found, defaulting to Sherpa-ASR (SenseVoice)");
+                (Some("sherpaAsr".to_string()),
+                 Some(crate::sherpa_asr_engine::sherpa_asr_engine::DEFAULT_MODEL_NAME.to_string()))
+            }
+        }
+    } else {
+        (provider, model)
+    };
+
     info!(
         "Starting import for '{}' from {} with language {:?}, model {:?}, provider {:?}",
         title, source_path, language, model, provider
     );
 
-    // Determine which provider to use (default to whisper)
+    // Determine which provider to use
     let use_parakeet = provider.as_deref() == Some("parakeet");
+    let use_sherpa_asr = provider.as_deref() == Some("sherpaAsr");
 
-    emit_progress(&app, "copying", 5, "Creating meeting folder...");
+    emit_progress(&app, "copying", 5, "正在创建会议文件夹...");
 
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -343,7 +364,7 @@ async fn run_import<R: Runtime>(
     let meeting_folder = create_meeting_folder(&base_folder, &title, false)?;
 
     // Copy audio file to meeting folder
-    emit_progress(&app, "copying", 10, "Copying audio file...");
+    emit_progress(&app, "copying", 10, "正在复制音频文件...");
 
     let dest_filename = format!(
         "audio.{}",
@@ -370,7 +391,7 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    emit_progress(&app, "decoding", 15, "Decoding audio file...");
+    emit_progress(&app, "decoding", 15, "正在解码音频文件...");
 
     // Decode the audio file with progress updates
     let app_for_decode = app.clone();
@@ -393,7 +414,7 @@ async fn run_import<R: Runtime>(
         duration_seconds, decoded.sample_rate, decoded.channels
     );
 
-    emit_progress(&app, "resampling", 20, "Converting audio format...");
+    emit_progress(&app, "resampling", 20, "正在转换音频格式...");
 
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -401,7 +422,7 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    // Convert to 16kHz mono format with progress updates
+    // Step 1: Convert to 48kHz mono for DeepFilterNet3 denoising
     let app_for_resample = app.clone();
     let resample_progress = Box::new(move |progress: u32, msg: &str| {
         // Map resample progress: 20% + (progress * 0.05) to go from 20% to 25%
@@ -409,17 +430,85 @@ async fn run_import<R: Runtime>(
         emit_progress(&app_for_resample, "resampling", overall_progress, msg);
     });
 
-    let audio_samples = tokio::task::spawn_blocking(move || {
-        decoded.to_whisper_format_with_progress(Some(resample_progress))
+    let samples_48k = tokio::task::spawn_blocking(move || {
+        decoded.to_48k_mono_with_progress(Some(resample_progress))
     })
     .await
     .map_err(|e| anyhow!("Resample task join error: {}", e))?;
     info!(
-        "Converted to 16kHz mono format: {} samples",
+        "Converted to 48kHz mono format: {} samples",
+        samples_48k.len()
+    );
+
+    // Check for cancellation
+    if IMPORT_CANCELLED.load(Ordering::SeqCst) {
+        let _ = std::fs::remove_dir_all(&meeting_folder);
+        return Err(anyhow!("Import cancelled"));
+    }
+
+    // Step 2: DeepFilterNet3 denoising (48kHz → 48kHz denoised)
+    // DfTract is not Send, so it must be created and used within the same
+    // spawn_blocking closure (not captured across threads).
+    emit_progress(&app, "denoising", 25, "正在降噪处理（DeepFilterNet3）...");
+
+    let app_for_denoise = app.clone();
+    let denoised_48k = tokio::task::spawn_blocking(move || -> Result<Vec<f32>> {
+        let mut denoiser = crate::audio::deepfilter_denoiser::DeepFilterDenoiser::new()
+            .map_err(|e| anyhow!("Failed to init DeepFilterNet3: {}", e))?;
+
+        let app_ref = &app_for_denoise;
+        let callback = |pct: u32| -> bool {
+            // Map denoise progress: 25% + (pct * 0.1) to go from 25% to 35%
+            let overall = 25 + ((pct as f32 * 0.1) as u32);
+            emit_progress(
+                app_ref,
+                "denoising",
+                overall,
+                &format!("正在降噪... {}%", pct),
+            );
+            !IMPORT_CANCELLED.load(Ordering::SeqCst)
+        };
+
+        denoiser.process_with_progress(&samples_48k, Some(&callback))
+    })
+    .await
+    .map_err(|e| anyhow!("Denoise task join error: {}", e))?
+    .map_err(|e| anyhow!("DeepFilterNet3 denoising failed: {}", e))?;
+
+    info!(
+        "DeepFilterNet3 denoising complete: {} samples",
+        denoised_48k.len()
+    );
+
+    // Check for cancellation
+    if IMPORT_CANCELLED.load(Ordering::SeqCst) {
+        let _ = std::fs::remove_dir_all(&meeting_folder);
+        return Err(anyhow!("Import cancelled"));
+    }
+
+    // Step 3: Resample denoised audio to 16kHz for VAD and transcription
+    emit_progress(&app, "resampling", 35, "正在准备转录格式...");
+
+    let denoised_for_resample = denoised_48k.clone();
+    let audio_samples = tokio::task::spawn_blocking(move || {
+        crate::audio::audio_processing::resample(&denoised_for_resample, 48000, 16000)
+    })
+    .await
+    .map_err(|e| anyhow!("Resample task join error: {}", e))?
+    .map_err(|e| anyhow!("Resample to 16kHz failed: {}", e))?;
+
+    // Clamp to valid range after resampling (Gibbs phenomenon)
+    let audio_samples: Vec<f32> = audio_samples
+        .iter()
+        .map(|&s| s.clamp(-1.0, 1.0))
+        .collect();
+
+    info!(
+        "Converted denoised audio to 16kHz mono format: {} samples",
         audio_samples.len()
     );
 
-    emit_progress(&app, "vad", 25, "Detecting speech segments...");
+    emit_progress(&app, "vad", 40, "正在检测语音片段...");
 
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -441,7 +530,7 @@ async fn run_import<R: Runtime>(
                     "vad",
                     overall_progress,
                     &format!(
-                        "Detecting speech segments... {}% ({} found)",
+                        "正在检测语音片段... {}%（已找到 {} 段）",
                         vad_progress, segments_found
                     ),
                 );
@@ -489,10 +578,10 @@ async fn run_import<R: Runtime>(
         let _ = app.emit(
             "import-warning",
             ImportWarning {
-                warning: "No speech detected in audio file".to_string(),
+                warning: "未在音频文件中检测到语音".to_string(),
                 details: Some(
-                    "The file was imported successfully, but VAD did not detect any speech. \
-                     The meeting was created but contains no transcripts.".to_string()
+                    "文件已成功导入，但 VAD 未检测到任何语音内容。\
+                     会议已创建但不包含转录文本。".to_string()
                 ),
             },
         );
@@ -505,16 +594,38 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    emit_progress(&app, "transcribing", 30, "Loading transcription engine...");
+    emit_progress(&app, "transcribing", 30, "正在加载转录引擎...");
 
     // Initialize the appropriate engine
-    let whisper_engine = if !use_parakeet && total_segments > 0 {
+    let whisper_engine = if !use_parakeet && !use_sherpa_asr && total_segments > 0 {
         Some(get_or_init_whisper(&app, model.as_deref()).await?)
     } else {
         None
     };
     let parakeet_engine = if use_parakeet && total_segments > 0 {
         Some(get_or_init_parakeet(&app, model.as_deref()).await?)
+    } else {
+        None
+    };
+    let sherpa_asr_engine = if use_sherpa_asr && total_segments > 0 {
+        // Initialize Sherpa-ASR engine and validate model
+        crate::sherpa_asr_engine::commands::sherpa_asr_init()
+            .await
+            .map_err(|e| anyhow!("Failed to init Sherpa-ASR engine: {}", e))?;
+        let models_dir = crate::sherpa_asr_engine::commands::get_models_directory();
+        let engine = crate::sherpa_asr_engine::sherpa_asr_engine::get_or_init_engine(models_dir);
+
+        // Get the configured or default model name
+        let target_model = model.as_deref().unwrap_or(
+            crate::sherpa_asr_engine::sherpa_asr_engine::DEFAULT_MODEL_NAME,
+        );
+
+        // Validate/load model
+        engine
+            .validate_model_ready(target_model)
+            .map_err(|e| anyhow!("Sherpa-ASR model '{}' not ready: {}", target_model, e))?;
+
+        Some(engine)
     } else {
         None
     };
@@ -561,7 +672,7 @@ async fn run_import<R: Runtime>(
             "transcribing",
             progress,
             &format!(
-                "Transcribing segment {} of {} ({:.1}s)...",
+                "正在转录第 {} 段，共 {} 段（{:.1}s）...",
                 i + 1,
                 processable_count,
                 segment_duration_sec
@@ -585,6 +696,12 @@ async fn run_import<R: Runtime>(
                 .transcribe_audio(segment.samples.clone())
                 .await
                 .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
+            (text, 0.9f32)
+        } else if use_sherpa_asr {
+            let engine = sherpa_asr_engine.as_ref().unwrap();
+            let text = engine
+                .transcribe_audio(&segment.samples, 16000, language.clone())
+                .map_err(|e| anyhow!("Sherpa-ASR transcription failed on segment {}: {}", i, e))?;
             (text, 0.9f32)
         } else {
             let engine = whisper_engine.as_ref().unwrap();
@@ -627,10 +744,10 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    emit_progress(&app, "saving", 85, "Creating meeting...");
+    emit_progress(&app, "saving", 85, "正在创建会议...");
 
     // Create transcript segments
-    let segments = create_transcript_segments(&all_transcripts);
+    let mut segments = create_transcript_segments(&all_transcripts);
 
     // Save to database
     let app_state = app
@@ -646,7 +763,7 @@ async fn run_import<R: Runtime>(
     .await?;
 
     // Write transcripts.json and metadata.json to the meeting folder
-    emit_progress(&app, "saving", 90, "Writing transcript files...");
+    emit_progress(&app, "saving", 90, "正在写入转录文件...");
 
     if let Err(e) = write_transcripts_json(&meeting_folder, &segments) {
         warn!("Failed to write transcripts.json: {}", e);
@@ -663,7 +780,7 @@ async fn run_import<R: Runtime>(
         warn!("Failed to write metadata.json: {}", e);
     }
 
-    emit_progress(&app, "complete", 100, "Import complete");
+    emit_progress(&app, "complete", 100, "导入完成");
 
     Ok(ImportResult {
         meeting_id,
@@ -671,6 +788,31 @@ async fn run_import<R: Runtime>(
         segments_count: segments.len(),
         duration_seconds,
     })
+}
+
+/// Update speaker labels for transcripts in the database.
+async fn update_speaker_labels_in_db<R: Runtime>(
+    app: &AppHandle<R>,
+    meeting_id: &str,
+    segments: &[TranscriptSegment],
+) -> Result<()> {
+    let app_state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| anyhow!("App state not available"))?;
+
+    let pool = app_state.db_manager.pool();
+    for seg in segments {
+        if let Some(speaker) = seg.speaker {
+            sqlx::query("UPDATE transcripts SET speaker = ? WHERE id = ? AND meeting_id = ?")
+                .bind(speaker.to_string())
+                .bind(&seg.id)
+                .bind(meeting_id)
+                .execute(pool)
+                .await
+                .map_err(|e| anyhow!("Failed to update speaker label: {}", e))?;
+        }
+    }
+    Ok(())
 }
 
 /// Emit progress event
@@ -971,7 +1113,7 @@ pub async fn start_import_audio_command<R: Runtime>(
 ) -> Result<ImportStarted, String> {
     // Check if import is already in progress (guard will be acquired in start_import)
     if IMPORT_IN_PROGRESS.load(Ordering::SeqCst) {
-        return Err("Import already in progress".to_string());
+        return Err("导入正在进行中".to_string());
     }
 
     // Spawn import in background
@@ -984,7 +1126,7 @@ pub async fn start_import_audio_command<R: Runtime>(
     });
 
     Ok(ImportStarted {
-        message: "Import started".to_string(),
+        message: "导入已开始".to_string(),
     })
 }
 
@@ -992,7 +1134,7 @@ pub async fn start_import_audio_command<R: Runtime>(
 #[tauri::command]
 pub async fn cancel_import_command() -> Result<(), String> {
     if !is_import_in_progress() {
-        return Err("No import in progress".to_string());
+        return Err("没有正在进行的导入".to_string());
     }
     cancel_import();
     Ok(())
@@ -1181,6 +1323,8 @@ mod tests {
                 audio_start_time: Some(0.0),
                 audio_end_time: Some(1.5),
                 duration: Some(1.5),
+                speaker: None,
+                speaker_name: None,
             },
             TranscriptSegment {
                 id: "t-2".to_string(),
@@ -1189,6 +1333,8 @@ mod tests {
                 audio_start_time: Some(2.0),
                 audio_end_time: Some(3.5),
                 duration: Some(1.5),
+                speaker: None,
+                speaker_name: None,
             },
         ];
 

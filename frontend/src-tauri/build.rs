@@ -18,6 +18,12 @@ fn main() {
     // Download and bundle FFmpeg binary at build-time
     ffmpeg::ensure_ffmpeg_binary();
 
+    // NOTE: copy_sherpa_libs() is not called here because TRAE Sandbox blocks
+    // file writes to Chinese paths during cargo build. DLLs are copied to
+    // sherpa-libs/ by a pre-build script instead. See fix_dll_bundling.py.
+    // #[cfg(target_os = "windows")]
+    // copy_sherpa_libs();
+
     tauri_build::build()
 }
 
@@ -89,4 +95,54 @@ fn detect_and_report_gpu_capabilities() {
         println!("cargo:warning=📊 Performance: CPU-only builds are significantly slower than GPU/BLAS builds");
         println!("cargo:warning=📚 See README.md for GPU/BLAS setup instructions");
     }
+}
+
+/// Copy sherpa-onnx shared DLLs from the cargo target profile dir into
+/// `sherpa-libs/` next to this build.rs so that Tauri's NSIS bundler picks
+/// them up via `bundle.resources = ["sherpa-libs/*.dll"]`.
+///
+/// Runs after sherpa-onnx-sys/build.rs (which downloads and extracts the
+/// prebuilt shared libs and copies the runtime DLLs into the profile dir)
+/// because Cargo executes build scripts in dependency-topological order.
+#[cfg(target_os = "windows")]
+fn copy_sherpa_libs() {
+    use std::fs;
+    use std::path::PathBuf;
+
+    let manifest_dir = PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"),
+    );
+    let target_dir = std::env::var("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| manifest_dir.join("target"));
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "release".to_string());
+    let release_dir = target_dir.join(&profile);
+
+    let dest_dir = manifest_dir.join("sherpa-libs");
+    let _ = fs::create_dir_all(&dest_dir);
+
+    // DLLs required by sherpa-onnx `shared` feature on Windows.
+    let dlls = [
+        "sherpa-onnx-c-api.dll",
+        "sherpa-onnx-cxx-api.dll",
+        "onnxruntime.dll",
+        "onnxruntime_providers_shared.dll",
+        "DirectML.dll",
+    ];
+
+    for dll in &dlls {
+        let src = release_dir.join(dll);
+        let dst = dest_dir.join(dll);
+        if src.exists() {
+            match fs::copy(&src, &dst) {
+                Ok(_) => println!("cargo:warning=Copied {} to sherpa-libs/", dll),
+                Err(e) => println!("cargo:warning=Failed to copy {}: {}", dll, e),
+            }
+        } else {
+            println!("cargo:warning=sherpa DLL not found (expected if not yet built): {}", src.display());
+        }
+    }
+
+    // Rerun if the release dir changes so new builds pick up updated DLLs.
+    println!("cargo:rerun-if-changed={}", release_dir.display());
 }

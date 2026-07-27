@@ -7,7 +7,7 @@
  * Default Whisper model for transcription when no preference is configured.
  * This is the recommended balance of accuracy and speed.
  */
-export const DEFAULT_WHISPER_MODEL = 'large-v3-turbo';
+export const DEFAULT_WHISPER_MODEL = 'medium';
 
 /**
  * Default Parakeet model for transcription when no preference is configured.

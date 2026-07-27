@@ -1,0 +1,10 @@
+docs: add MOSS postprocess enhancement design spec
+
+Design for porting MOSS-Transcribe-Diarize's pure-algorithm subsystems
+(transcript postprocessing, subtitle export, hotword correction) to Rust
+without introducing Python dependencies or the MOSS model itself.
+
+Three independent modules:
+- transcript_postprocess (P0): port MOSS subtitle/postprocess.py
+- subtitle_export (P0): port MOSS subtitle/export.py + layout.py
+- hotword_correction (P1): borrow MOSS hotword prompt pattern, reuse existing llm_client

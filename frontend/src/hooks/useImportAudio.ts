@@ -114,8 +114,8 @@ export function useImportAudio({
             await applyPinnedSummaryLanguageToMeeting(event.payload.meeting_id);
           } catch (error) {
             console.warn('Failed to apply pinned summary language to imported meeting:', error);
-            toast.warning('Could not apply default summary language', {
-              description: 'The imported meeting was saved, but the default summary language was not applied.',
+            toast.warning('无法应用默认摘要语言', {
+              description: '导入的会议已保存，但未应用默认摘要语言设置。',
             });
           }
           onCompleteRef.current?.(event.payload);
@@ -175,7 +175,7 @@ export function useImportAudio({
       }
     } catch (err: any) {
       setStatus('error');
-      const errorMsg = typeof err === 'string' ? err : (err?.message || String(err) || 'Failed to validate file');
+      const errorMsg = typeof err === 'string' ? err : (err?.message || String(err) || '文件验证失败');
       setError(errorMsg);
       onErrorRef.current?.(errorMsg);
       return null;
@@ -194,7 +194,7 @@ export function useImportAudio({
       return result;
     } catch (err: any) {
       setStatus('error');
-      const errorMsg = typeof err === 'string' ? err : (err?.message || String(err) || 'Failed to validate file');
+      const errorMsg = typeof err === 'string' ? err : (err?.message || String(err) || '文件验证失败');
       setError(errorMsg);
       onErrorRef.current?.(errorMsg);
       return null;
@@ -235,7 +235,7 @@ export function useImportAudio({
         });
       } catch (err: any) {
         setStatus('error');
-        const errorMsg = typeof err === 'string' ? err : (err?.message || String(err) || 'Failed to start import');
+        const errorMsg = typeof err === 'string' ? err : (err?.message || String(err) || '启动导入失败');
         setError(errorMsg);
 
         await Analytics.trackError('import_audio_failed', errorMsg);

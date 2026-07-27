@@ -1,51 +1,51 @@
 {
-  "name": "Project Sync / Status Update",
-  "description": "Weekly or bi-weekly project status meeting focusing on milestones and risks.",
+  "name": "项目同步 / 状态更新",
+  "description": "每周或每两周一次的项目状态会议，聚焦里程碑和风险。",
   "sections": [
     {
-      "title": "Meeting Date & Time",
-      "instruction": "Date, start/end time, facilitator name",
+      "title": "会议日期与时间",
+      "instruction": "日期、开始/结束时间、主持人姓名",
       "format": "string"
     },
     {
-      "title": "Attendees",
-      "instruction": "List attendees and their roles",
+      "title": "参会人员",
+      "instruction": "列出参会人员及其角色",
       "format": "list"
     },
     {
-      "title": "Milestones & Status",
-      "instruction": "Current milestones with status and estimated completion date",
+      "title": "里程碑与状态",
+      "instruction": "当前里程碑及其状态和预计完成日期",
       "format": "list",
-      "item_format": "| **Milestone** | **Status** | **ETA** |\n| --- | --- | --- |"
+      "item_format": "| **里程碑** | **状态** | **预计完成** |\n| --- | --- | --- |"
     },
     {
-      "title": "Progress Summary",
-      "instruction": "Short paragraph summarizing progress since last sync meeting",
+      "title": "进展总结",
+      "instruction": "简短段落总结自上次同步会议以来的进展",
       "format": "paragraph"
     },
     {
-      "title": "Top Risks & Mitigations",
-      "instruction": "List top risks with impact level, mitigation plan, and owner",
+      "title": "主要风险与应对措施",
+      "instruction": "列出主要风险及其影响程度、应对计划和负责人",
       "format": "list",
-      "item_format": "| **Risk** | **Impact** | **Mitigation** | **Owner** |\n| --- | --- | --- | --- |"
+      "item_format": "| **风险** | **影响** | **应对措施** | **负责人** |\n| --- | --- | --- | --- |"
     },
     {
-      "title": "Key Decisions",
-      "instruction": "Decisions made in this meeting with rationale and timestamp",
+      "title": "关键决定",
+      "instruction": "本次会议做出的决定及其理由和时间戳",
       "format": "list",
-      "item_format": "| **Decision** | **Rationale** | **Timestamp** |\n| --- | --- | --- |"
+      "item_format": "| **决定** | **理由** | **时间戳** |\n| --- | --- | --- |"
     },
     {
-      "title": "Action Items",
-      "instruction": "Tasks with owners, due dates, priority, and status",
+      "title": "待办事项",
+      "instruction": "任务及其负责人、截止日期、优先级和状态",
       "format": "list",
-      "item_format": "| **Owner** | **Task** | **Due Date** | **Priority** | **Status** |\n| --- | --- | --- | --- | --- |"
+      "item_format": "| **负责人** | **任务** | **截止日期** | **优先级** | **状态** |\n| --- | --- | --- | --- | --- |"
     },
     {
-      "title": "Related Documents",
-      "instruction": "Links to relevant documents, tickets, or designs discussed",
+      "title": "相关文档",
+      "instruction": "讨论中涉及的相关文档、工单或设计稿链接",
       "format": "list",
-      "item_format": "| **Document Title** | **URL** | **Type** |\n| --- | --- | --- |"
+      "item_format": "| **文档名称** | **链接** | **类型** |\n| --- | --- | --- |"
     }
   ]
 }

@@ -56,7 +56,7 @@ function writeToStorage(values: string[]): void {
  */
 export function useRecentLanguages() {
   const [recents, setRecents] = useState<string[]>(() => readFromStorage());
-  const [pinned, setPinnedState] = useState<string | null>(() => readPinnedFromStorage());
+  const [pinned, setPinnedState] = useState<string | null>(() => readPinnedFromStorage() ?? 'zh');
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {

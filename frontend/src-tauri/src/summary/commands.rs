@@ -346,6 +346,15 @@ pub async fn api_process_transcript<R: Runtime>(
         &model
     );
 
+    // Reject empty/whitespace-only transcripts early. Short recordings can pass
+    // through VAD with empty text segments; without this guard the empty prompt
+    // is forwarded to the LLM sidecar, which either crashes or returns junk.
+    if text.trim().is_empty() {
+        return Err(
+            "Transcript text is empty. Please ensure the recording contains speech before generating a summary.".to_string(),
+        );
+    }
+
     let pool = state.db_manager.pool().clone();
     let final_prompt = custom_prompt.unwrap_or_else(|| "".to_string());
     let final_template_id = template_id.unwrap_or_else(|| "daily_standup".to_string());

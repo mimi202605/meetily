@@ -8,6 +8,7 @@ import { recordingService } from '@/services/recordingService';
 import Analytics from '@/lib/analytics';
 import { showRecordingNotification } from '@/lib/recordingNotification';
 import { toast } from 'sonner';
+import type { TranscriptModelProps } from '@/components/TranscriptSettings';
 
 interface UseRecordingStartReturn {
   handleRecordingStart: () => Promise<void>;
@@ -49,22 +50,84 @@ export function useRecordingStart(
     return `Meeting ${day}_${month}_${year}_${hours}_${minutes}_${seconds}`;
   }, []);
 
-  // Check if Parakeet transcription model is ready
-  const checkParakeetReady = useCallback(async (): Promise<boolean> => {
+  // Check if transcription model is ready based on user's configured provider
+  const checkTranscriptionModelReady = useCallback(async (): Promise<{ ready: boolean; error?: string }> => {
     try {
-      await invoke('parakeet_init');
-      const hasModels = await invoke<boolean>('parakeet_has_available_models');
-      return hasModels;
-    } catch (error) {
-      console.error('Failed to check Parakeet status:', error);
-      return false;
+      // Get user's transcript config to determine which provider/model to validate
+      const config = await invoke<TranscriptModelProps | null>('api_get_transcript_config');
+
+      if (!config) {
+        // No config found - default to sherpaAsr with SenseVoice
+        await invoke('sherpa_asr_init');
+        const hasModels = await invoke<boolean>('sherpa_asr_has_available_models');
+        return { ready: hasModels, error: hasModels ? undefined : '未找到可用的转录模型' };
+      }
+
+      const provider: string = config.provider;
+
+      console.log(`[Recording] Checking model readiness - provider: ${provider}, model: ${config.model}`);
+
+      switch (provider) {
+        case 'sherpaAsr': {
+          await invoke('sherpa_asr_init');
+          // Use validate_model_ready which checks the specific configured model
+          try {
+            await invoke<string>('sherpa_asr_validate_model_ready');
+            return { ready: true };
+          } catch (e: any) {
+            const msg = typeof e === 'string' ? e : (e?.message || String(e));
+            console.error('[Recording] Sherpa-ASR model validation failed:', msg);
+            return { ready: false, error: msg };
+          }
+        }
+        case 'parakeet': {
+          try {
+            await invoke<string>('parakeet_validate_model_ready');
+            return { ready: true };
+          } catch (e: any) {
+            const msg = typeof e === 'string' ? e : (e?.message || String(e));
+            console.error('[Recording] Parakeet model validation failed:', msg);
+            return { ready: false, error: msg };
+          }
+        }
+        case 'localWhisper': {
+          try {
+            await invoke<string>('whisper_validate_model_ready');
+            return { ready: true };
+          } catch (e: any) {
+            const msg = typeof e === 'string' ? e : (e?.message || String(e));
+            console.error('[Recording] Whisper model validation failed:', msg);
+            return { ready: false, error: msg };
+          }
+        }
+        case 'deepgram':
+        case 'groq':
+        case 'openai':
+        case 'elevenLabs': {
+          // Cloud providers - only need API key, no local model required
+          if (!config.apiKey) {
+            return { ready: false, error: `${provider} API key 未配置` };
+          }
+          return { ready: true };
+        }
+        default: {
+          // Unknown provider - fall back to sherpa_asr check
+          await invoke('sherpa_asr_init');
+          const hasModels = await invoke<boolean>('sherpa_asr_has_available_models');
+          return { ready: hasModels, error: hasModels ? undefined : '未知 provider 且无可用模型' };
+        }
+      }
+    } catch (error: any) {
+      const msg = typeof error === 'string' ? error : (error?.message || String(error));
+      console.error('Failed to check transcription model readiness:', msg);
+      return { ready: false, error: msg };
     }
   }, []);
 
   // Check if any model is currently downloading
   const checkIfModelDownloading = useCallback(async (): Promise<boolean> => {
     try {
-      const models = await invoke<any[]>('parakeet_get_available_models');
+      const models = await invoke<any[]>('sherpa_asr_get_available_models');
       const isDownloading = models.some(m =>
         m.status && (
           typeof m.status === 'object'
@@ -82,31 +145,29 @@ export function useRecordingStart(
   // Handle manual recording start (from button click)
   const handleRecordingStart = useCallback(async () => {
     try {
-      console.log('handleRecordingStart called - checking Parakeet model status');
+      console.log('handleRecordingStart called - checking transcription model status');
 
-      // Check if Parakeet transcription model is ready before starting
-      const parakeetReady = await checkParakeetReady();
-      if (!parakeetReady) {
+      // Check if transcription model is ready before starting
+      const { ready, error } = await checkTranscriptionModelReady();
+      if (!ready) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
-          toast.info('Model download in progress', {
-            description: 'Please wait for the transcription model to finish downloading before recording.',
+          toast.info('模型下载中', {
+            description: '请等待转录模型下载完成后再开始录音。',
             duration: 5000,
           });
           Analytics.trackButtonClick('start_recording_blocked_downloading', 'home_page');
         } else {
-          toast.error('Transcription model not ready', {
-            description: 'Please download a transcription model before recording.',
-            duration: 5000,
-          });
-          showModal?.('modelSelector', 'Transcription model setup required');
+          const msg = error ? `转录模型未就绪：${error}` : '转录模型未就绪，请先下载转录模型再开始录音。';
+          toast.error(msg, { duration: 8000 });
+          showModal?.('modelSelector', msg);
           Analytics.trackButtonClick('start_recording_blocked_missing', 'home_page');
         }
         setStatus(RecordingStatus.IDLE);
         return;
       }
 
-      console.log('Parakeet ready - setting up meeting title and state');
+      console.log('Transcription model ready - setting up meeting title and state');
 
       const randomTitle = generateMeetingTitle();
       setMeetingTitle(randomTitle);
@@ -141,7 +202,7 @@ export function useRecordingStart(
       // Re-throw so RecordingControls can handle device-specific errors
       throw error;
     }
-  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkParakeetReady, checkIfModelDownloading, selectedDevices, showModal, setStatus]);
+  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkTranscriptionModelReady, checkIfModelDownloading, selectedDevices, showModal, setStatus]);
 
   // Check for autoStartRecording flag and start recording automatically
   useEffect(() => {
@@ -153,22 +214,20 @@ export function useRecordingStart(
           setIsAutoStarting(true);
           sessionStorage.removeItem('autoStartRecording'); // Clear the flag
 
-          // Check if Parakeet transcription model is ready before starting
-          const parakeetReady = await checkParakeetReady();
-          if (!parakeetReady) {
+          // Check if transcription model is ready before starting
+          const { ready, error } = await checkTranscriptionModelReady();
+          if (!ready) {
             const isDownloading = await checkIfModelDownloading();
             if (isDownloading) {
-              toast.info('Model download in progress', {
-                description: 'Please wait for the transcription model to finish downloading before recording.',
+              toast.info('模型下载中', {
+                description: '请等待转录模型下载完成后再开始录音。',
                 duration: 5000,
               });
               Analytics.trackButtonClick('start_recording_blocked_downloading', 'sidebar_auto');
             } else {
-              toast.error('Transcription model not ready', {
-                description: 'Please download a transcription model before recording.',
-                duration: 5000,
-              });
-              showModal?.('modelSelector', 'Transcription model setup required');
+              const msg = error ? `转录模型未就绪：${error}` : '转录模型未就绪，请先下载转录模型再开始录音。';
+              toast.error(msg, { duration: 8000 });
+              showModal?.('modelSelector', msg);
               Analytics.trackButtonClick('start_recording_blocked_missing', 'sidebar_auto');
             }
             setStatus(RecordingStatus.IDLE);
@@ -224,7 +283,7 @@ export function useRecordingStart(
     setIsRecording,
     clearTranscripts,
     setIsMeetingActive,
-    checkParakeetReady,
+    checkTranscriptionModelReady,
     checkIfModelDownloading,
     showModal,
     setStatus,
@@ -238,25 +297,23 @@ export function useRecordingStart(
         return;
       }
 
-      console.log('Direct start from sidebar - checking Parakeet model status');
+      console.log('Direct start from sidebar - checking transcription model status');
       setIsAutoStarting(true);
 
-      // Check if Parakeet transcription model is ready before starting
-      const parakeetReady = await checkParakeetReady();
-      if (!parakeetReady) {
+      // Check if transcription model is ready before starting
+      const { ready, error } = await checkTranscriptionModelReady();
+      if (!ready) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
-          toast.info('Model download in progress', {
-            description: 'Please wait for the transcription model to finish downloading before recording.',
+          toast.info('模型下载中', {
+            description: '请等待转录模型下载完成后再开始录音。',
             duration: 5000,
           });
           Analytics.trackButtonClick('start_recording_blocked_downloading', 'sidebar_direct');
         } else {
-          toast.error('Transcription model not ready', {
-            description: 'Please download a transcription model before recording.',
-            duration: 5000,
-          });
-          showModal?.('modelSelector', 'Transcription model setup required');
+          const msg = error ? `转录模型未就绪：${error}` : '转录模型未就绪，请先下载转录模型再开始录音。';
+          toast.error(msg, { duration: 8000 });
+          showModal?.('modelSelector', msg);
           Analytics.trackButtonClick('start_recording_blocked_missing', 'sidebar_direct');
         }
         setStatus(RecordingStatus.IDLE);
@@ -313,7 +370,7 @@ export function useRecordingStart(
     setIsRecording,
     clearTranscripts,
     setIsMeetingActive,
-    checkParakeetReady,
+    checkTranscriptionModelReady,
     checkIfModelDownloading,
     showModal,
     setStatus,

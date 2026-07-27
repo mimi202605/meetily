@@ -30,98 +30,98 @@ const NotePage = ({ params }: PageProps) => {
   // This would normally come from your database
   const sampleData: Record<string, Note> = {
     'team-sync-dec-26': {
-      title: 'Team Sync - Dec 26',
+      title: '团队同步 - 12月26日',
       date: '2024-12-26',
-      time: '10:00 AM - 11:00 AM',
+      time: '上午 10:00 - 11:00',
       attendees: ['John Doe', 'Jane Smith', 'Mike Johnson'],
-      tags: ['Team Sync', 'Weekly', 'Product'],
+      tags: ['团队同步', '每周', '产品'],
       content: `
-# Meeting Summary
-Team sync discussion about Q1 2024 goals and current project status.
+# 会议摘要
+关于 2024 年第一季度目标和当前项目状态的团队同步讨论。
 
-## Agenda Items
-1. Project Status Updates
-2. Q1 2024 Planning
-3. Team Concerns & Feedback
+## 议程事项
+1. 项目状态更新
+2. 2024 年第一季度规划
+3. 团队问题与反馈
 
-## Key Decisions
-- Prioritized mobile app development for Q1
-- Scheduled weekly design reviews
-- Added two new features to the roadmap
+## 关键决策
+- 优先进行第一季度的移动应用开发
+- 安排每周设计评审
+- 在路线图中新增两个功能
 
-## Action Items
-- [ ] John: Create project timeline
-- [ ] Jane: Schedule design review meetings
-- [ ] Mike: Update documentation
+## 行动项
+- [ ] John：创建项目时间表
+- [ ] Jane：安排设计评审会议
+- [ ] Mike：更新文档
 
-## Notes
-- Discussed current project bottlenecks
-- Reviewed customer feedback from last release
-- Planned resource allocation for upcoming sprint
+## 备注
+- 讨论了当前项目瓶颈
+- 审查了上个版本的客户反馈
+- 规划了即将到来的迭代的资源分配
       `
     },
     'product-review': {
-      title: 'Product Review',
+      title: '产品评审',
       date: '2024-12-26',
-      time: '2:00 PM - 3:00 PM',
+      time: '下午 2:00 - 3:00',
       attendees: ['Sarah Wilson', 'Tom Brown', 'Alex Chen'],
-      tags: ['Product', 'Review', 'Quarterly'],
+      tags: ['产品', '评审', '季度'],
       content: `
-# Product Review Meeting
+# 产品评审会议
 
-## Overview
-Quarterly product review session with stakeholders.
+## 概述
+与利益相关者的季度产品评审会议。
 
-## Discussion Points
-1. Q4 Performance Review
-2. Feature Prioritization
-3. Customer Feedback Analysis
+## 讨论要点
+1. 第四季度绩效评审
+2. 功能优先级排序
+3. 客户反馈分析
 
-## Action Items
-- [ ] Update product roadmap
-- [ ] Schedule user research sessions
-- [ ] Review competitor analysis
+## 行动项
+- [ ] 更新产品路线图
+- [ ] 安排用户调研会议
+- [ ] 审查竞争对手分析
       `
     },
     'project-ideas': {
-      title: 'Project Ideas',
+      title: '项目创意',
       date: '2024-12-26',
-      tags: ['Ideas', 'Planning'],
+      tags: ['创意', '规划'],
       content: `
-# Project Ideas
+# 项目创意
 
-## New Features
-1. AI-powered meeting summaries
-2. Calendar integration
-3. Team collaboration tools
+## 新功能
+1. AI 驱动的会议摘要
+2. 日历集成
+3. 团队协作工具
 
-## Improvements
-- Enhanced search functionality
-- Better note organization
-- Real-time collaboration
+## 改进
+- 增强搜索功能
+- 更好的笔记组织
+- 实时协作
       `
     },
     'action-items': {
-      title: 'Action Items',
+      title: '行动项',
       date: '2024-12-26',
-      tags: ['Tasks', 'Todo', 'Planning'],
+      tags: ['任务', '待办', '规划'],
       content: `
-# Action Items
+# 行动项
 
-## High Priority
-- [ ] Deploy v2.0 to production
-- [ ] Fix critical security issues
-- [ ] Complete user documentation
+## 高优先级
+- [ ] 将 v2.0 部署到生产环境
+- [ ] 修复关键安全问题
+- [ ] 完成用户文档
 
-## Medium Priority
-- [ ] Update dependencies
-- [ ] Implement error tracking
-- [ ] Add unit tests
+## 中优先级
+- [ ] 更新依赖项
+- [ ] 实现错误追踪
+- [ ] 添加单元测试
 
-## Low Priority
-- [ ] Refactor legacy code
-- [ ] Improve code documentation
-- [ ] Setup development guidelines
+## 低优先级
+- [ ] 重构遗留代码
+- [ ] 改进代码文档
+- [ ] 建立开发规范
       `
     }
   };
@@ -129,7 +129,7 @@ Quarterly product review session with stakeholders.
   const note = sampleData[params.id as keyof typeof sampleData];
 
   if (!note) {
-    return <div className="p-8">Note not found</div>;
+    return <div className="p-8">未找到笔记</div>;
   }
 
   return (

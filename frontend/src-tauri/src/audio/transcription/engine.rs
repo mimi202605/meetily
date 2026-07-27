@@ -16,6 +16,7 @@ pub enum TranscriptionEngine {
     Whisper(Arc<crate::whisper_engine::WhisperEngine>),  // Direct access (backward compat)
     Parakeet(Arc<crate::parakeet_engine::ParakeetEngine>), // Direct access (backward compat)
     Provider(Arc<dyn TranscriptionProvider>),  // Trait-based (preferred for new code)
+    SherpaAsr(Arc<crate::sherpa_asr_engine::sherpa_asr_engine::SherpaAsrEngine>),  // Pure Rust ONNX ASR
 }
 
 impl TranscriptionEngine {
@@ -25,6 +26,7 @@ impl TranscriptionEngine {
             Self::Whisper(engine) => engine.is_model_loaded().await,
             Self::Parakeet(engine) => engine.is_model_loaded().await,
             Self::Provider(provider) => provider.is_model_loaded().await,
+            Self::SherpaAsr(engine) => engine.is_model_loaded(),
         }
     }
 
@@ -34,6 +36,7 @@ impl TranscriptionEngine {
             Self::Whisper(engine) => engine.get_current_model().await,
             Self::Parakeet(engine) => engine.get_current_model().await,
             Self::Provider(provider) => provider.get_current_model().await,
+            Self::SherpaAsr(engine) => engine.get_current_model(),
         }
     }
 
@@ -43,6 +46,7 @@ impl TranscriptionEngine {
             Self::Whisper(_) => "Whisper (direct)",
             Self::Parakeet(_) => "Parakeet (direct)",
             Self::Provider(provider) => provider.provider_name(),
+            Self::SherpaAsr(_) => "Sherpa-ONNX ASR",
         }
     }
 }
@@ -69,18 +73,18 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
             config
         }
         Ok(None) => {
-            info!("📝 No transcript config found, defaulting to parakeet");
+            info!("📝 No transcript config found, defaulting to Sherpa-ONNX ASR (SenseVoice)");
             crate::api::api::TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                provider: "sherpaAsr".to_string(),
+                model: crate::sherpa_asr_engine::sherpa_asr_engine::DEFAULT_MODEL_NAME.to_string(),
                 api_key: None,
             }
         }
         Err(e) => {
-            warn!("⚠️ Failed to get transcript config: {}, defaulting to parakeet", e);
+            warn!("⚠️ Failed to get transcript config: {}, defaulting to Sherpa-ONNX ASR (SenseVoice)", e);
             crate::api::api::TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                provider: "sherpaAsr".to_string(),
+                model: crate::sherpa_asr_engine::sherpa_asr_engine::DEFAULT_MODEL_NAME.to_string(),
                 api_key: None,
             }
         }
@@ -135,6 +139,23 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 }
             }
         }
+        "sherpaAsr" => {
+            info!("🔍 Validating Sherpa-ONNX ASR model...");
+            if let Err(init_error) = crate::sherpa_asr_engine::commands::sherpa_asr_init().await {
+                warn!("❌ Failed to initialize Sherpa-ASR engine: {}", init_error);
+                return Err(format!("Failed to initialize speech recognition: {}", init_error));
+            }
+            match crate::sherpa_asr_engine::commands::sherpa_asr_validate_model_ready_internal(app).await {
+                Ok(model_name) => {
+                    info!("✅ Sherpa-ASR model validation successful: {} is ready", model_name);
+                    Ok(())
+                }
+                Err(e) => {
+                    warn!("❌ Sherpa-ASR model validation failed: {}", e);
+                    Err(e)
+                }
+            }
+        }
         other => {
             warn!("❌ Unsupported transcription provider for local recording: {}", other);
             Err(format!(
@@ -165,18 +186,18 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
             config
         }
         Ok(None) => {
-            info!("📝 No transcript config found, defaulting to parakeet");
+            info!("📝 No transcript config found, defaulting to Sherpa-ONNX ASR (SenseVoice)");
             crate::api::api::TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                provider: "sherpaAsr".to_string(),
+                model: crate::sherpa_asr_engine::sherpa_asr_engine::DEFAULT_MODEL_NAME.to_string(),
                 api_key: None,
             }
         }
         Err(e) => {
-            warn!("⚠️ Failed to get transcript config: {}, defaulting to parakeet", e);
+            warn!("⚠️ Failed to get transcript config: {}, defaulting to Sherpa-ONNX ASR (SenseVoice)", e);
             crate::api::api::TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                provider: "sherpaAsr".to_string(),
+                model: crate::sherpa_asr_engine::sherpa_asr_engine::DEFAULT_MODEL_NAME.to_string(),
                 api_key: None,
             }
         }
@@ -211,6 +232,12 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                     Err("Parakeet engine not initialized. This should not happen after validation.".to_string())
                 }
             }
+        }
+        "sherpaAsr" => {
+            info!("🎤 Initializing Sherpa-ONNX ASR transcription engine");
+            let models_dir = crate::sherpa_asr_engine::commands::get_models_directory();
+            let engine = crate::sherpa_asr_engine::sherpa_asr_engine::get_or_init_engine(models_dir);
+            Ok(TranscriptionEngine::SherpaAsr(engine))
         }
         "localWhisper" | _ => {
             info!("🎤 Initializing Whisper transcription engine");

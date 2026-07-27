@@ -77,6 +77,14 @@ async fn get_sidecar_manager() -> Result<Arc<SidecarManager>> {
 }
 
 /// Get cached model path with read-through caching to avoid repeated filesystem I/O
+///
+/// On cache miss, performs full integrity validation:
+/// - File exists
+/// - File size matches expected (±10% tolerance, matching model_manager.rs)
+/// - GGUF magic number is valid (reads first 4 bytes)
+///
+/// If validation fails, the corrupted file is deleted so the next download
+/// starts fresh, and a clear error is returned guiding the user to re-download.
 fn get_cached_model_path(app_data_dir: &PathBuf, model_name: &str) -> Result<PathBuf> {
     // Try read lock first (fast path for cache hits)
     {
@@ -110,9 +118,93 @@ fn get_cached_model_path(app_data_dir: &PathBuf, model_name: &str) -> Result<Pat
         ));
     }
 
+    // Validate model file integrity before handing the path to the sidecar.
+    // This catches truncated/partial downloads and files with wrong content
+    // that previously caused opaque "unable to load model" errors from
+    // llama.cpp. On failure the corrupted file is deleted.
+    validate_model_file_integrity(model_name, &model_path)?;
+
     // Cache the validated path
     cache.insert(model_name.to_string(), model_path.clone());
     Ok(model_path)
+}
+
+/// Validate that a model file on disk is complete and in a loadable GGUF
+/// format. Mirrors the checks performed by `ModelManager::scan_models` and
+/// `ModelManager::validate_gguf_file`, but is invoked synchronously on the
+/// hot path right before spawning the sidecar so that corrupted files are
+/// caught eagerly and removed.
+///
+/// Checks performed:
+/// 1. File size is within ±10% of `ModelDef::size_mb` (catches truncated
+///    downloads where the file happens to exist but is too small).
+/// 2. First 4 bytes match a known GGUF/GGML magic number.
+fn validate_model_file_integrity(model_name: &str, model_path: &std::path::Path) -> Result<()> {
+    let model_def = models::get_model_by_name(model_name)
+        .ok_or_else(|| anyhow!("Unknown model during validation: {}", model_name))?;
+
+    // 1. Size check (10% tolerance, identical to model_manager.rs)
+    let file_metadata = std::fs::metadata(model_path)
+        .with_context(|| format!("Failed to read model file metadata at {:?}", model_path))?;
+    let file_size_mb = file_metadata.len() / (1024 * 1024);
+    let expected_min_mb = (model_def.size_mb as f64 * 0.9) as u64;
+    let expected_max_mb = (model_def.size_mb as f64 * 1.1) as u64;
+
+    if file_size_mb < expected_min_mb || file_size_mb > expected_max_mb {
+        log::error!(
+            "Model '{}' size mismatch: {} MB (expected {}-{} MB). File appears corrupted, deleting.",
+            model_name,
+            file_size_mb,
+            expected_min_mb,
+            expected_max_mb
+        );
+        let _ = std::fs::remove_file(model_path);
+        return Err(anyhow!(
+            "Model file '{}' is corrupted (size {} MB, expected {}-{} MB). \
+             The corrupted file has been deleted. Please re-download the model '{}'.",
+            model_path.display(),
+            file_size_mb,
+            expected_min_mb,
+            expected_max_mb,
+            model_name
+        ));
+    }
+
+    // 2. GGUF magic number check (read first 4 bytes)
+    use std::io::Read;
+    let mut file = std::fs::File::open(model_path)
+        .with_context(|| format!("Failed to open model file for validation at {:?}", model_path))?;
+    let mut magic = [0u8; 4];
+    file.read_exact(&mut magic)
+        .with_context(|| format!("Failed to read GGUF magic number from {:?}", model_path))?;
+
+    let is_valid_magic = &magic == b"GGUF"
+        || &magic == b"ggjt"
+        || &magic == b"ggla"
+        || &magic == b"ggml";
+
+    if !is_valid_magic {
+        log::error!(
+            "Model '{}' has invalid GGUF magic: {:?}. File appears corrupted, deleting.",
+            model_name,
+            magic
+        );
+        let _ = std::fs::remove_file(model_path);
+        return Err(anyhow!(
+            "Model file '{}' is not a valid GGUF file (magic bytes: {:?}). \
+             The corrupted file has been deleted. Please re-download the model '{}'.",
+            model_path.display(),
+            magic,
+            model_name
+        ));
+    }
+
+    log::info!(
+        "Model '{}' integrity validated: {} MB, valid GGUF format",
+        model_name,
+        file_size_mb
+    );
+    Ok(())
 }
 
 // ============================================================================
@@ -161,15 +253,24 @@ pub async fn generate_with_builtin(
     let manager = {
         let mut global_manager = SIDECAR_MANAGER.lock().await;
         if global_manager.is_none() {
-            log::info!("Initializing sidecar manager");
-            let new_manager = SidecarManager::new(app_data_dir.clone())?;
+            log::info!("Initializing sidecar manager with app_data_dir: {}", app_data_dir.display());
+            let new_manager = match SidecarManager::new(app_data_dir.clone()) {
+                Ok(m) => m,
+                Err(e) => {
+                    log::error!("Failed to create SidecarManager: {}", e);
+                    return Err(anyhow!("Failed to initialize built-in AI engine: {}. Please ensure llama-helper is installed correctly.", e));
+                }
+            };
             *global_manager = Some(Arc::new(new_manager));
         }
         global_manager.clone().unwrap()
     };
 
     // Ensure sidecar is running with this model
-    manager.ensure_running(model_path.clone()).await?;
+    if let Err(e) = manager.ensure_running(model_path.clone()).await {
+        log::error!("Failed to start llama-helper sidecar: {}", e);
+        return Err(anyhow!("Failed to load built-in AI model: {}. Error: {}", model_name, e));
+    }
 
     // Check cancellation after sidecar startup
     if let Some(token) = cancellation_token {

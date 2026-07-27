@@ -33,9 +33,11 @@ export interface SummaryLanguageDetectionResult {
 export function readPinnedSummaryLanguageDefault(): string | null {
   if (typeof window === 'undefined') return null;
   try {
-    return normaliseLanguageCode(window.localStorage.getItem(SUMMARY_LANGUAGE_DEFAULT_KEY));
+    const stored = normaliseLanguageCode(window.localStorage.getItem(SUMMARY_LANGUAGE_DEFAULT_KEY));
+    // Default to Chinese ('zh') when no explicit preference is pinned.
+    return stored ?? 'zh';
   } catch {
-    return null;
+    return 'zh';
   }
 }
 

@@ -389,8 +389,10 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
           duration: number;
           confidence: number;
           speaker: number | null;
+          speaker_name?: string | null;
         }>;
         num_speakers: number;
+        speaker_names?: Record<number, string | null>;
       }>('transcript-diarized', (event) => {
         const payload = event.payload;
         // Map diarized segments to Transcript shape, preserving speaker field.
@@ -404,8 +406,19 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
           duration: seg.duration,
           confidence: seg.confidence,
           speaker: seg.speaker ?? undefined,
+          speaker_name: seg.speaker_name ?? undefined,
         }));
-        setTranscripts(diarized);
+        // MERGE by sequence_id instead of REPLACE - preserves transcripts that arrived during diarization.
+        // Note: We merge by sequence_id (not id) because real-time transcripts use frontend-generated
+        // ids (`${Date.now()}-${counter}`) while diarized segments use backend ids. sequence_id is the
+        // field that corresponds between the two sources.
+        setTranscripts(prev => {
+          const map = new Map(prev.map(t => [t.sequence_id ?? t.id, t]));
+          for (const d of diarized) {
+            map.set(d.sequence_id ?? d.id, d);
+          }
+          return Array.from(map.values()).sort((a, b) => (a.sequence_id ?? 0) - (b.sequence_id ?? 0));
+        });
 
         // Dismiss loading toast and show success.
         toast.dismiss('diarization-loading');

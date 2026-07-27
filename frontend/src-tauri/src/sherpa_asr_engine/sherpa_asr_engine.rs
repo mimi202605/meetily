@@ -164,10 +164,19 @@ impl SherpaAsrEngine {
     pub fn model_path(&self, model_name: &str) -> Option<PathBuf> {
         let model_def = get_model_by_name(model_name)?;
 
-        // 1. Bundled (production) path for SenseVoice.
+        // 1. Bundled (production) path for SenseVoice (only if files actually exist).
         if model_name == DEFAULT_MODEL_NAME {
             if let Some(bundled) = bundled_sense_voice_dir() {
-                return Some(bundled);
+                if bundled.exists()
+                    && bundled.join(&model_def.model_file).exists()
+                    && bundled.join(&model_def.tokens_file).exists()
+                {
+                    return Some(bundled);
+                }
+                log::warn!(
+                    "[SherpaASR] Bundled model dir not found or incomplete: {}, falling back to app_data",
+                    bundled.display()
+                );
             }
         }
 

@@ -51,6 +51,20 @@ impl DecodedAudio {
 
     /// Convert decoded audio to Whisper format with optional progress callback
     pub fn to_whisper_format_with_progress(&self, progress_callback: Option<ProgressCallback>) -> Vec<f32> {
+        self.to_format_with_progress(WHISPER_SAMPLE_RATE, progress_callback)
+    }
+
+    /// Convert decoded audio to 48kHz mono format (for DeepFilterNet3 denoising)
+    pub fn to_48k_mono_with_progress(&self, progress_callback: Option<ProgressCallback>) -> Vec<f32> {
+        self.to_format_with_progress(48_000, progress_callback)
+    }
+
+    /// Internal: convert to mono + normalize + resample to target sample rate
+    fn to_format_with_progress(
+        &self,
+        target_sample_rate: u32,
+        progress_callback: Option<ProgressCallback>,
+    ) -> Vec<f32> {
         // Step 1: Convert to mono if needed
         let mono_samples = if self.channels > 1 {
             info!(
@@ -67,9 +81,8 @@ impl DecodedAudio {
         // Some audio files may have samples slightly outside this range
         let mono_samples = normalize_audio_samples(mono_samples);
 
-        // Step 2: Resample to 16kHz if needed
-        const WHISPER_SAMPLE_RATE: u32 = 16000;
-        if self.sample_rate != WHISPER_SAMPLE_RATE {
+        // Step 2: Resample to target sample rate if needed
+        if self.sample_rate != target_sample_rate {
             // Large files are processed in chunks through the sinc resampler
             // to keep memory bounded while preserving audio quality.
             // Linear interpolation (fast_resample) was removed because it lacks
@@ -82,17 +95,17 @@ impl DecodedAudio {
                     "Chunked sinc resampling {} samples from {}Hz to {}Hz (large file mode)",
                     mono_samples.len(),
                     self.sample_rate,
-                    WHISPER_SAMPLE_RATE
+                    target_sample_rate
                 );
-                chunked_resample_with_progress(&mono_samples, self.sample_rate, WHISPER_SAMPLE_RATE, progress_callback)
+                chunked_resample_with_progress(&mono_samples, self.sample_rate, target_sample_rate, progress_callback)
             } else {
                 info!(
                     "Resampling {} samples from {}Hz to {}Hz",
                     mono_samples.len(),
                     self.sample_rate,
-                    WHISPER_SAMPLE_RATE
+                    target_sample_rate
                 );
-                resample_audio(&mono_samples, self.sample_rate, WHISPER_SAMPLE_RATE)
+                resample_audio(&mono_samples, self.sample_rate, target_sample_rate)
             };
 
             // Clamp after resampling: the sinc resampler can overshoot
@@ -107,6 +120,9 @@ impl DecodedAudio {
         }
     }
 }
+
+/// Target sample rate for Whisper/SenseVoice transcription
+const WHISPER_SAMPLE_RATE: u32 = 16000;
 
 /// Resample large audio files in fixed-size chunks through the sinc resampler.
 ///
@@ -309,7 +325,7 @@ fn convert_to_wav_with_ffmpeg(
     );
 
     if let Some(cb) = progress_callback {
-        cb(0, "Converting audio format with FFmpeg...");
+        cb(0, "正在通过 FFmpeg 转换音频格式...");
     }
 
     let input_str = input_path
@@ -377,7 +393,7 @@ fn convert_to_wav_with_ffmpeg(
     }
 
     if let Some(cb) = progress_callback {
-        cb(100, "FFmpeg conversion complete");
+        cb(100, "FFmpeg 格式转换完成");
     }
 
     info!(
@@ -551,7 +567,7 @@ pub fn decode_audio_file_with_progress(
 
     // Ensure we report 100% completion
     if let Some(callback) = &progress_callback {
-        callback(100, "Decoding complete");
+        callback(100, "解码完成");
     }
 
     if all_samples.is_empty() {

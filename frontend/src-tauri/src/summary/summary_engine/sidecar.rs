@@ -17,6 +17,9 @@ use std::os::windows::process::CommandExt;
 
 use super::models;
 
+/// Maximum number of stderr lines to retain for crash diagnostics.
+const STDERR_TAIL_LINES: usize = 50;
+
 // ============================================================================
 // Sidecar State Management
 // ============================================================================
@@ -52,6 +55,10 @@ pub struct SidecarManager {
 
     /// Idle timeout in seconds (configurable via env var)
     idle_timeout_secs: u64,
+
+    /// Ring buffer of recent stderr lines from the sidecar process.
+    /// Used to enrich crash diagnostics when stdout closes unexpectedly.
+    recent_stderr: Arc<Mutex<std::collections::VecDeque<String>>>,
 }
 
 /// RAII guard for tracking active requests
@@ -101,6 +108,7 @@ impl SidecarManager {
             helper_binary_path,
             current_model_path: Arc::new(RwLock::new(None)),
             idle_timeout_secs,
+            recent_stderr: Arc::new(Mutex::new(std::collections::VecDeque::with_capacity(STDERR_TAIL_LINES))),
         })
     }
 
@@ -254,8 +262,23 @@ impl SidecarManager {
             }
         }
 
+        // Last resort: check common Windows install locations
+        if cfg!(windows) {
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(exe_dir) = exe_path.parent() {
+                    log::info!("Last-resort search for llama-helper.exe in: {}", exe_dir.display());
+                    let direct = exe_dir.join("llama-helper.exe");
+                    if direct.exists() {
+                        log::info!("Found llama-helper.exe via last-resort search: {}", direct.display());
+                        return Ok(direct);
+                    }
+                }
+            }
+        }
+
         Err(anyhow!(
-            "llama-helper binary not found. Build with 'cd llama-helper && cargo build --release' or set MEETILY_LLAMA_HELPER env var."
+            "llama-helper binary not found. Searched: next to executable, RESOURCE_DIR, CARGO_MANIFEST_DIR. Current exe: {:?}",
+            std::env::current_exe()
         ))
     }
 
@@ -285,7 +308,7 @@ impl SidecarManager {
 
         #[cfg(unix)]
         let mut command = tokio::process::Command::new("nice");
-        
+
         #[cfg(not(unix))]
         let mut command = tokio::process::Command::new(&self.helper_binary_path);
 
@@ -295,7 +318,11 @@ impl SidecarManager {
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit()) // Log stderr to main process
+            // Capture stderr so we can surface crash diagnostics when the
+            // process exits unexpectedly. Previously stderr was inherited,
+            // which meant crash logs vanished into the parent's stderr stream
+            // and never reached the user-facing error message.
+            .stderr(Stdio::piped())
             .env("LLAMA_IDLE_TIMEOUT", self.idle_timeout_secs.to_string());
 
         #[cfg(target_os = "windows")]
@@ -312,6 +339,7 @@ impl SidecarManager {
 
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("Failed to get stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("Failed to get stdout"))?;
+        let stderr = child.stderr.take().ok_or_else(|| anyhow!("Failed to get stderr"))?;
 
         // Store handles
         {
@@ -329,23 +357,134 @@ impl SidecarManager {
             *stdout_lock = Some(BufReader::new(stdout));
         }
 
+        // Spawn a background task that continuously drains stderr into both
+        // the log and a bounded ring buffer. The ring buffer is read when
+        // stdout closes unexpectedly to build a actionable error message.
+        {
+            let stderr_buf = self.recent_stderr.clone();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break, // EOF
+                        Ok(_) => {
+                            let trimmed = line.trim_end();
+                            if !trimmed.is_empty() {
+                                log::debug!("llama-helper stderr: {}", trimmed);
+                                let mut buf = stderr_buf.lock().await;
+                                if buf.len() >= STDERR_TAIL_LINES {
+                                    buf.pop_front();
+                                }
+                                buf.push_back(trimmed.to_string());
+                            }
+                        }
+                        Err(e) => {
+                            log::debug!("llama-helper stderr read error: {}", e);
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
         // Update state
         {
             let mut current_model = self.current_model_path.write().await;
             *current_model = Some(model_path);
         }
 
-        self.is_healthy.store(true, Ordering::SeqCst);
         self.should_shutdown.store(false, Ordering::SeqCst);
         self.update_activity().await;
 
-        log::info!("Sidecar spawned successfully");
+        log::info!("Sidecar process spawned, verifying readiness via ping...");
 
-        // Start background tasks
+        // Verify the sidecar is actually ready to accept requests by sending
+        // a ping. This catches the common failure mode where the process
+        // exits immediately after startup (missing DLLs, CUDA init failure,
+        // model load panic, etc.) — previously we marked the sidecar healthy
+        // unconditionally and the first user request would hit EOF on stdout.
+        let ping_timeout = Duration::from_secs(30);
+        match tokio::time::timeout(ping_timeout, self.send_ping()).await {
+            Ok(Ok(())) => {
+                self.is_healthy.store(true, Ordering::SeqCst);
+                log::info!("Sidecar is ready (ping succeeded)");
+            }
+            Ok(Err(e)) => {
+                log::error!("Sidecar ping failed during startup: {}", e);
+                let stderr_tail = self.collect_stderr_tail().await;
+                self.mark_unhealthy().await;
+                let exit_info = self.collect_exit_info().await;
+                return Err(anyhow!(
+                    "llama-helper failed to start. Ping error: {}.{}{}",
+                    e,
+                    exit_info,
+                    stderr_tail
+                ));
+            }
+            Err(_) => {
+                log::error!("Sidecar ping timed out after {:?}", ping_timeout);
+                let stderr_tail = self.collect_stderr_tail().await;
+                self.mark_unhealthy().await;
+                let exit_info = self.collect_exit_info().await;
+                return Err(anyhow!(
+                    "llama-helper did not respond to ping within {:?}.{}{}",
+                    ping_timeout,
+                    exit_info,
+                    stderr_tail
+                ));
+            }
+        }
+
+        // Start background tasks only after readiness is confirmed
         self.start_health_check_loop();
         self.start_idle_check_loop();
 
         Ok(())
+    }
+
+    /// Collect recent stderr lines as a formatted string for error messages.
+    async fn collect_stderr_tail(&self) -> String {
+        let buf = self.recent_stderr.lock().await;
+        if buf.is_empty() {
+            String::new()
+        } else {
+            format!("\nRecent llama-helper stderr:\n{}", buf.iter().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n"))
+        }
+    }
+
+    /// Try to wait on the child process and report its exit status.
+    async fn collect_exit_info(&self) -> String {
+        let mut child_lock = self.child_process.lock().await;
+        if let Some(child) = child_lock.as_mut() {
+            match child.try_wait() {
+                Ok(Some(status)) => format!("\nProcess exit status: {}", status),
+                Ok(None) => "\nProcess still running (exit status unknown).".to_string(),
+                Err(e) => format!("\nFailed to get process exit status: {}", e),
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    /// Mark the sidecar as unhealthy and clear state without attempting
+    /// graceful shutdown (used after a crash has already been detected).
+    async fn mark_unhealthy(&self) {
+        self.is_healthy.store(false, Ordering::SeqCst);
+        // Clear stdin/stdout handles since the process is dead
+        {
+            let mut stdin_lock = self.stdin_writer.lock().await;
+            *stdin_lock = None;
+        }
+        {
+            let mut stdout_lock = self.stdout_reader.lock().await;
+            *stdout_lock = None;
+        }
+        {
+            let mut current_model = self.current_model_path.write().await;
+            *current_model = None;
+        }
     }
 
     /// Send a request to the sidecar and wait for response
@@ -403,7 +542,17 @@ impl SidecarManager {
             .context("Failed to read response from stdout")?;
 
         if line.is_empty() {
-            return Err(anyhow!("Sidecar closed stdout (process may have crashed)"));
+            // stdout closed = process exited. Mark unhealthy and gather
+            // diagnostics so the user sees *why* it crashed instead of a
+            // generic "process may have crashed" message.
+            self.is_healthy.store(false, Ordering::SeqCst);
+            let stderr_tail = self.collect_stderr_tail().await;
+            let exit_info = self.collect_exit_info().await;
+            return Err(anyhow!(
+                "Sidecar closed stdout (process exited unexpectedly).{}{}",
+                exit_info,
+                stderr_tail
+            ));
         }
 
         Ok(line.trim().to_string())
@@ -566,6 +715,7 @@ impl SidecarManager {
             helper_binary_path: self.helper_binary_path.clone(),
             current_model_path: self.current_model_path.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
+            recent_stderr: self.recent_stderr.clone(),
         };
 
         tokio::spawn(async move {
@@ -614,6 +764,7 @@ impl SidecarManager {
             helper_binary_path: self.helper_binary_path.clone(),
             current_model_path: self.current_model_path.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
+            recent_stderr: self.recent_stderr.clone(),
         };
 
         tokio::spawn(async move {

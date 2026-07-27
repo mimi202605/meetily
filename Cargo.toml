@@ -16,3 +16,27 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.32.0", features = ["full"] }
+
+# Optimize tract and deep_filter crates in dev profile to work around
+# tract 0.21.4 codegen bug (produces NaN weights under opt-level < 3).
+# See DeepFilterNet issue #538. Only these crates need release-level opts;
+# other deps and the main crate stay unoptimized for fast incremental builds.
+# NOTE: release builds are unaffected (already opt-level=3 by default).
+[profile.dev.package.tract-core]
+opt-level = 3
+[profile.dev.package.tract-onnx]
+opt-level = 3
+[profile.dev.package.tract-hir]
+opt-level = 3
+[profile.dev.package.tract-pulse]
+opt-level = 3
+[profile.dev.package.tract-pulse-opl]
+opt-level = 3
+[profile.dev.package.tract-onnx-opl]
+opt-level = 3
+[profile.dev.package.tract-nnef]
+opt-level = 3
+[profile.dev.package.tract-linalg]
+opt-level = 3
+[profile.dev.package.deep_filter]
+opt-level = 3

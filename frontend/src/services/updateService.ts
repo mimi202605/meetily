@@ -1,12 +1,10 @@
 /**
  * Update Service
  *
- * Handles automatic software updates using Tauri updater plugin.
- * Provides update checking, downloading, and installation functionality.
+ * Auto-update functionality has been disabled.
+ * All methods return no-op results to maintain API compatibility.
  */
 
-import { check, Update } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
 import { getVersion } from '@tauri-apps/api/app';
 
 export interface UpdateInfo {
@@ -39,50 +37,11 @@ export class UpdateService {
    * @returns Promise with update information
    */
   async checkForUpdates(force = false): Promise<UpdateInfo> {
-    // Prevent concurrent update checks
-    if (this.updateCheckInProgress) {
-      throw new Error('Update check already in progress');
-    }
-
-    // Skip if checked recently (unless forced)
-    if (!force && this.lastCheckTime) {
-      const timeSinceLastCheck = Date.now() - this.lastCheckTime;
-      if (timeSinceLastCheck < this.CHECK_INTERVAL_MS) {
-        console.log('Skipping update check - checked recently');
-        return {
-          available: false,
-          currentVersion: await getVersion(),
-        };
-      }
-    }
-
-    this.updateCheckInProgress = true;
-    this.lastCheckTime = Date.now();
-
-    try {
-      const currentVersion = await getVersion();
-      const update = await check();
-
-      if (update?.available) {
-        return {
-          available: true,
-          currentVersion,
-          version: update.version,
-          date: update.date,
-          body: update.body,
-        };
-      }
-
-      return {
-        available: false,
-        currentVersion,
-      };
-    } catch (error) {
-      console.error('Failed to check for updates:', error);
-      throw error;
-    } finally {
-      this.updateCheckInProgress = false;
-    }
+    // Auto-update check disabled - no external network requests
+    return {
+      available: false,
+      currentVersion: await getVersion(),
+    };
   }
 
   /**
@@ -92,25 +51,11 @@ export class UpdateService {
    * @returns Promise that resolves when download completes
    */
   async downloadAndInstall(
-    update: Update,
-    onProgress?: (progress: UpdateProgress) => void
+    _update: any,
+    _onProgress?: (progress: UpdateProgress) => void
   ): Promise<void> {
-    try {
-      // Download the update
-      await update.download();
-
-      // Notify progress if callback provided
-      if (onProgress) {
-        onProgress({ downloaded: 100, total: 100, percentage: 100 });
-      }
-
-      // Install and relaunch
-      await update.install();
-      await relaunch();
-    } catch (error) {
-      console.error('Failed to download/install update:', error);
-      throw error;
-    }
+    // Auto-update disabled - no external network requests
+    throw new Error('自动更新功能已禁用');
   }
 
   /**

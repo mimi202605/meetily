@@ -29,10 +29,10 @@ echo.
 
 echo.
 
-REM Kill any existing processes on port 3118
-echo 🧹 Checking for existing processes on port 3118...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3118 2^>nul') do (
-    echo    Killing process %%a on port 3118
+REM Kill any existing processes on port 55556
+echo 🧹 Checking for existing processes on port 55556...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :55556 2^>nul') do (
+    echo    Killing process %%a on port 55556
     taskkill /PID %%a /F >nul 2>&1
 )
 

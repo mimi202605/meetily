@@ -1,0 +1,116 @@
+﻿node.exe : $ node scripts/tauri-auto.js build
+At C:\Users\admin\AppData\Roaming\TRAE SOLO CN\ModularData\ai-agent\vm\tools\node\pnpm.ps1:16 char:5
++     & "$basedir/node$exe"  "$basedir/node_modules/corepack/dist/pnpm. ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ($ node scripts/tauri-auto.js build:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+⚠️  Vulkan detected but missing dependencies - falling back to CPU
+   Missing: VULKAN_SDK environment variable
+   Missing: BLAS_INCLUDE_DIRS environment variable
+
+🚀 Running: tauri build (CPU-only mode)
+
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `pnpm build`
+$ next build
+⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+  ▲ Next.js 14.2.35
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/11) ...
+   Generating static pages (2/11) 
+   Generating static pages (5/11) 
+   Generating static pages (8/11) 
+ ✓ Generating static pages (11/11)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    20.5 kB         243 kB
+├ ○ /_not-found                          879 B          89.3 kB
+├ ○ /meeting-details                     564 kB          785 kB
+├ ● /notes/[id]                          148 B          88.6 kB
+├   ├ /notes/team-sync-dec-26
+├   ├ /notes/product-review
+├   ├ /notes/project-ideas
+├   └ /notes/action-items
+└ ○ /settings                            8.95 kB         232 kB
++ First Load JS shared by all            88.4 kB
+  ├ chunks/2901-9d15a99e40495f80.js      32 kB
+  ├ chunks/e54491a5-2f77240d80333c00.js  53.6 kB
+  └ other shared chunks (total)          2.79 kB
+
+
+○  (Static)  prerendered as static content
+●  (SSG)     prerendered as static HTML (uses getStaticProps)
+
+[1m[93mwarning[0m: patch for the non root package will be ignored, specify patch at the workspace root:
+package:   D:\meetily\frontend\src-tauri\Cargo.toml
+workspace: D:\meetily\Cargo.toml
+[1m[93mwarning[0m: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   D:\meetily\llama-helper\Cargo.toml
+workspace: D:\meetily\Cargo.toml
+[1m[92m   Compiling[0m bindgen v0.69.5
+[1m[93mwarning[0m[1m[97m: unused import: `std::io::Read`[0m
+   [1m[96m--> [0mfrontend\src-tauri\build\ffmpeg.rs:210:9
+    [1m[96m|[0m
+[1m[96m210[0m [1m[96m|[0m     use std::io::Read;
+    [1m[96m|[0m         [1m[93m^^^^^^^^^^^^^[0m
+    [1m[96m|[0m
+    [1m[96m= [0m[1m[97mnote[0m: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+[1m[93mwarning[0m[1m[97m: function `copy_sherpa_libs` is never used[0m
+   [1m[96m--> [0mfrontend\src-tauri\build.rs:108:4
+    [1m[96m|[0m
+[1m[96m108[0m [1m[96m|[0m fn copy_sherpa_libs() {
+    [1m[96m|[0m    [1m[93m^^^^^^^^^^^^^^^^[0m
+    [1m[96m|[0m
+    [1m[96m= [0m[1m[97mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[93mwarning[0m: `meetily` (build script) generated 2 warnings
+[1m[92m   Compiling[0m meetily v1.3.0 (D:\meetily\frontend\src-tauri)
+[1m[93mwarning[0m: meetily@1.3.0: 🚀 Building Meetily for: windows
+[1m[93mwarning[0m: meetily@1.3.0: ⚠️  Windows: Using CPU-only mode (no GPU or BLAS acceleration)
+[1m[93mwarning[0m: meetily@1.3.0: 💡 For NVIDIA GPU: cargo build --release --features cuda
+[1m[93mwarning[0m: meetily@1.3.0: 💡 For AMD/Intel GPU: cargo build --release --features vulkan
+[1m[93mwarning[0m: meetily@1.3.0: 💡 For CPU optimization: cargo build --release --features openblas
+[1m[93mwarning[0m: meetily@1.3.0: 📊 Performance: CPU-only builds are significantly slower than GPU/BLAS builds
+[1m[93mwarning[0m: meetily@1.3.0: 📚 See README.md for GPU/BLAS setup instructions
+[1m[93mwarning[0m: meetily@1.3.0: 🎬 Checking FFmpeg binary for target: x86_64-pc-windows-msvc
+[1m[93mwarning[0m: meetily@1.3.0: 🔍 Found cached FFmpeg binary: ffmpeg-x86_64-pc-windows-msvc.exe
+[1m[93mwarning[0m: meetily@1.3.0: ✅ FFmpeg verification passed: ffmpeg version 8.0.1-essentials_build-www.gyan.dev C
+opyright (c) 2000-2025 the FFmpeg developers
+[1m[93mwarning[0m: meetily@1.3.0: ✅ FFmpeg binary already cached and verified: ffmpeg-x86_64-pc-windows-msvc.exe
+[1m[92m   Compiling[0m whisper-rs-sys v0.11.1
+[1m[91merror[0m: failed to run custom build command for `whisper-rs-sys v0.11.1`
+
+Caused by:
+  process didn't exit successfully: `D:\meetily\target\release\build\whisper-rs-sys-b14b8946ab0c8906\build-script-build
+` (exit code: 101)
+  --- stdout
+  cargo:rerun-if-changed=wrapper.h
+  cargo:rerun-if-env-changed=TARGET
+  cargo:rerun-if-env-changed=BINDGEN_EXTRA_CLANG_ARGS_x86_64-pc-windows-msvc
+  cargo:rerun-if-env-changed=BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc
+  cargo:rerun-if-env-changed=BINDGEN_EXTRA_CLANG_ARGS
+  cargo:rerun-if-changed=wrapper.h
+
+  --- stderr
+
+  thread 'main' (39848) panicked at C:\Users\admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bindgen-0.69.5\
+lib.rs:622:31:
+  Unable to find libclang: "couldn't find any valid shared libraries matching: ['clang.dll', 'libclang.dll'], set the `
+LIBCLANG_PATH` environment variable to a path where one of these files can be found (invalid: [])"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+failed to build app: failed to build app
+       Error failed to build app: failed to build app
+[ELIFECYCLE] Command failed with exit code 1.

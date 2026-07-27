@@ -77,3 +77,6 @@ experiments/
 target/
 
 frontend/src-tauri/binaries/
+
+# Rust build target (CARGO_TARGET_DIR redirected by start.bat)
+/build-target/

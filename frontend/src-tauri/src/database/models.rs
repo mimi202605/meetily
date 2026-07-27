@@ -35,6 +35,10 @@ pub struct Transcript {
     pub audio_start_time: Option<f64>,
     pub audio_end_time: Option<f64>,
     pub duration: Option<f64>,
+    /// Speaker ID assigned by diarization (stored as TEXT in DB, parsed to i32).
+    pub speaker: Option<String>,
+    /// Speaker name from voiceprint matching or manual assignment.
+    pub speaker_name: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

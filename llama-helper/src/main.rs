@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use encoding_rs;
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
@@ -14,6 +14,18 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use serde::{Deserialize, Serialize};
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// Maximum number of tokens processed in a single `llama_decode()` call.
+///
+/// Set to 32768 to match the default context size, so prompts up to the
+/// full context window can be processed in a single decode call. The
+/// prompt-splitting loop in `generate()` still guards against prompts
+/// exceeding this value.
+const N_BATCH: usize = 32768;
 
 // ============================================================================
 // Protocol Messages (JSON over stdin/stdout)
@@ -326,6 +338,20 @@ impl ModelState {
 
         eprintln!("📥 Loading model: {}", model_path.display());
 
+        // Pre-flight integrity check. The Tauri side also validates the file,
+        // but the sidecar may receive a path whose file was deleted or
+        // corrupted between validation and load (e.g. concurrent download,
+        // antivirus quarantine, disk error). Catching these cases here
+        // produces an actionable error instead of llama.cpp's opaque
+        // "unable to load model" message.
+        if let Err(diag) = Self::diagnose_model_file(&model_path) {
+            return Err(anyhow!(
+                "unable to load model at {:?}. {}",
+                model_path,
+                diag
+            ));
+        }
+
         // Detect GPU layers
         let gpu_layers = get_default_gpu_layers(&model_path, context_size);
 
@@ -333,8 +359,25 @@ impl ModelState {
         let model_params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
         let model_params = pin!(model_params);
 
-        let model = LlamaModel::load_from_file(&self.backend, model_path.clone(), &model_params)
-            .with_context(|| format!("unable to load model at {:?}", model_path))?;
+        let model = match LlamaModel::load_from_file(&self.backend, model_path.clone(), &model_params) {
+            Ok(m) => m,
+            Err(e) => {
+                // load_from_file failed despite passing our pre-flight checks.
+                // Re-collect diagnostics so the user sees file size / magic /
+                // existence info alongside the underlying llama.cpp error,
+                // rather than just "unable to load model at <path>".
+                let diag = Self::diagnose_model_file(&model_path)
+                    .err()
+                    .map(|d| format!(" {}", d))
+                    .unwrap_or_default();
+                return Err(anyhow!(
+                    "unable to load model at {:?}. Underlying error: {}.{}",
+                    model_path,
+                    e,
+                    diag
+                ));
+            }
+        };
 
         self.model = Some(model);
         self.model_path = Some(model_path);
@@ -342,6 +385,76 @@ impl ModelState {
         self.update_activity();
 
         eprintln!("✅ Model loaded successfully");
+        Ok(())
+    }
+
+    /// Inspect a model file on disk and return a human-readable diagnostic
+    /// string when something is wrong, or `Ok(())` when the file looks
+    /// loadable.
+    ///
+    /// Checks (in order):
+    /// 1. File exists.
+    /// 2. File size is non-zero and plausibly a model (> 1 MiB).
+    /// 3. First 4 bytes match a known GGUF/GGML magic number.
+    ///
+    /// On failure the returned string explains what went wrong and suggests
+    /// re-downloading the model, since the most common cause is a truncated
+    /// or quarantined download.
+    fn diagnose_model_file(model_path: &PathBuf) -> Result<()> {
+        use std::io::Read;
+
+        if !model_path.exists() {
+            return Err(anyhow!(
+                "File does not exist. The model may have been deleted, or the \
+                 app was installed to a location where it cannot access the \
+                 expected AppData folder. Please re-download the model from \
+                 the settings page."
+            ));
+        }
+
+        let metadata = std::fs::metadata(model_path).with_context(|| {
+            format!("Failed to read file metadata for {:?}", model_path)
+        })?;
+        let size_bytes = metadata.len();
+        let size_mb = size_bytes as f64 / (1024.0 * 1024.0);
+
+        if size_bytes < 1024 * 1024 {
+            return Err(anyhow!(
+                "File is only {:.2} MB — too small to be a valid model. \
+                 The download was likely truncated. Please delete and \
+                 re-download the model.",
+                size_mb
+            ));
+        }
+
+        // Verify GGUF/GGML magic number.
+        let mut file = std::fs::File::open(model_path).with_context(|| {
+            format!("Failed to open file for magic check: {:?}", model_path)
+        })?;
+        let mut magic = [0u8; 4];
+        file.read_exact(&mut magic).with_context(|| {
+            format!("Failed to read magic bytes from {:?}", model_path)
+        })?;
+
+        let is_valid_magic = &magic == b"GGUF"
+            || &magic == b"ggjt"
+            || &magic == b"ggla"
+            || &magic == b"ggml";
+
+        if !is_valid_magic {
+            return Err(anyhow!(
+                "File is {:.2} MB but has invalid magic bytes {:?} — not a \
+                 valid GGUF model. The file may have been corrupted or \
+                 replaced. Please delete and re-download the model.",
+                size_mb,
+                magic
+            ));
+        }
+
+        eprintln!(
+            "📊 Model file pre-flight OK: {:.2} MB, valid GGUF format at {:?}",
+            size_mb, model_path
+        );
         Ok(())
     }
 
@@ -368,7 +481,12 @@ impl ModelState {
             .with_n_ctx(Some(
                 NonZeroU32::new(self.context_size).context("Invalid ctx size")?,
             ))
-            .with_n_batch(self.context_size)
+            // n_batch controls the maximum tokens processed in a single
+            // llama_decode() call. Set to N_BATCH (32768) to match the
+            // context size so full-length prompts can be processed in one
+            // decode. The prompt-splitting loop below still guards against
+            // prompts exceeding this value.
+            .with_n_batch(N_BATCH as u32)
             .with_n_threads(threads)
             .with_n_threads_batch(threads);
 
@@ -382,22 +500,54 @@ impl ModelState {
 
         eprintln!("📝 Tokenized prompt: {} tokens", tokens_list.len());
 
-        // Use context size for batch capacity to handle long prompts
-        let batch_size = self.context_size as usize;
-        let mut batch = LlamaBatch::new(batch_size, 1);
-
-        let last_index: i32 = (tokens_list.len() - 1) as i32;
-        for (i, token) in (0_i32..).zip(tokens_list.into_iter()) {
-            let is_last = i == last_index;
-            batch
-                .add(token, i, &[0], is_last)
-                .context("Failed to add token to batch")?;
+        if tokens_list.is_empty() {
+            return Err(anyhow!(
+                "Tokenized prompt is empty (model failed to tokenize input)"
+            ));
         }
 
-        ctx.decode(&mut batch).context("llama_decode() failed")?;
+        // ── Prompt splitting ─────────────────────────────────────────────
+        // llama_decode() can process at most `n_batch` tokens per call. When
+        // the prompt exceeds n_batch (e.g. 2793 tokens vs n_batch=2048) we
+        // must split it into chunks and decode each chunk separately. Only
+        // the very last token of the final chunk needs logits enabled so the
+        // sampler can pick the next token.
+        //
+        // This fixes the GGML_ASSERT(n_tokens_ <= n_batch) crash reported
+        // when generating summaries for long transcriptions.
+        let total_tokens = tokens_list.len();
+        let batch_cap = N_BATCH.min(total_tokens);
+        let mut batch = LlamaBatch::new(batch_cap, 1);
+
+        let mut pos: i32 = 0;
+        let mut chunk_start = 0;
+        while chunk_start < total_tokens {
+            batch.clear();
+            let chunk_end = (chunk_start + N_BATCH).min(total_tokens);
+            let chunk_len = chunk_end - chunk_start;
+            let is_last_chunk = chunk_end == total_tokens;
+
+            for (i, &token) in tokens_list[chunk_start..chunk_end].iter().enumerate() {
+                let need_logits = is_last_chunk && i == chunk_len - 1;
+                batch
+                    .add(token, pos + i as i32, &[0], need_logits)
+                    .context("Failed to add token to batch")?;
+            }
+
+            ctx.decode(&mut batch)
+                .context("llama_decode() failed during prompt processing")?;
+
+            pos += chunk_len as i32;
+            chunk_start = chunk_end;
+            eprintln!(
+                "  • Processed {}/{} prompt tokens",
+                chunk_start, total_tokens
+            );
+        }
+
         let prompt_time = start_time.elapsed();
 
-        let n_prompt_tokens = batch.n_tokens();
+        let n_prompt_tokens = total_tokens as i32;
         let mut n_cur = n_prompt_tokens;
         let mut decoder = encoding_rs::UTF_8.new_decoder();
         let mut output = String::new();

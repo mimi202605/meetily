@@ -8,8 +8,6 @@ use tokio::sync::Mutex;
 
 use super::model_manager::{DownloadProgress, ModelInfo, ModelManager};
 
-const QWEN35_4B_RECOMMENDED_RAM_GB: u64 = 14;
-
 pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
     match model_name {
         "qwen3.5:4b" => 4,
@@ -20,20 +18,24 @@ pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
     }
 }
 
-pub(crate) fn recommend_summary_model(_is_macos: bool, system_ram_gb: u64) -> &'static str {
-    if system_ram_gb >= QWEN35_4B_RECOMMENDED_RAM_GB {
-        "qwen3.5:4b"
-    } else {
-        "qwen3.5:2b"
-    }
+/// Default recommended summary model for all users.
+///
+/// Previously this was chosen by a RAM-based heuristic (>=14GB → 4B, else 2B),
+/// which caused inconsistent default downloads across machines. The default is
+/// now unified to `qwen3.5:2b` for everyone. `system_ram_gb` is kept for
+/// signature compatibility but no longer affects the result.
+pub(crate) fn recommend_summary_model(_is_macos: bool, _system_ram_gb: u64) -> &'static str {
+    "qwen3.5:2b"
 }
 
 pub(crate) fn get_recommended_summary_model_for_current_system() -> Result<&'static str, String> {
-    let system_ram_gb = get_system_ram_gb()?;
+    // RAM detection retained for logging/diagnostics, but no longer gates the
+    // recommended model — all users default to qwen3.5:2b.
+    let system_ram_gb = get_system_ram_gb().unwrap_or(0);
     let is_macos = cfg!(target_os = "macos");
 
     log::info!(
-        "System RAM detected: {} GB, Platform: {}",
+        "System RAM detected: {} GB, Platform: {}. Default summary model: qwen3.5:2b (unified)",
         system_ram_gb,
         if is_macos { "macOS" } else { "other" }
     );
@@ -382,10 +384,12 @@ pub async fn init_model_manager_at_startup<R: Runtime>(
 }
 
 
-/// Get recommended summary model based on platform and system RAM.
-/// macOS → qwen3.5:4b
-/// non-macOS + <8GB RAM → qwen3.5:2b
-/// non-macOS + >=8GB RAM → qwen3.5:4b
+/// Get recommended summary model.
+///
+/// All users default to `qwen3.5:2b` to provide a consistent onboarding
+/// experience. The previous RAM-based heuristic caused inconsistent default
+/// downloads across machines (some got 2B, others got 4B). Users who want
+/// the higher-quality 4B model can still select it manually in Settings.
 #[tauri::command]
 pub async fn builtin_ai_get_recommended_model() -> Result<String, String> {
     let recommended = get_recommended_summary_model_for_current_system()?;
@@ -412,15 +416,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recommended_summary_model_uses_qwen2b_below_effective_16gb_floor() {
-        assert_eq!(recommend_summary_model(true, 13), "qwen3.5:2b");
-        assert_eq!(recommend_summary_model(false, 13), "qwen3.5:2b");
-    }
-
-    #[test]
-    fn recommended_summary_model_uses_qwen4b_at_effective_16gb_floor() {
-        assert_eq!(recommend_summary_model(true, 14), "qwen3.5:4b");
-        assert_eq!(recommend_summary_model(false, 14), "qwen3.5:4b");
+    fn recommended_summary_model_always_returns_qwen2b_regardless_of_ram() {
+        // Default is unified to qwen3.5:2b for all users regardless of RAM,
+        // to avoid inconsistent default downloads across machines.
+        assert_eq!(recommend_summary_model(true, 4), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(false, 4), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(true, 8), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(false, 8), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(true, 16), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(false, 16), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(true, 32), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(false, 32), "qwen3.5:2b");
     }
 
     #[test]

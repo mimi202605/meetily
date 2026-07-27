@@ -1,0 +1,60 @@
+﻿node.exe : $ node scripts/tauri-auto.js build
+At C:\Users\admin\AppData\Roaming\TRAE SOLO CN\ModularData\ai-agent\vm\tools\node\pnpm.ps1:16 char:5
++     & "$basedir/node$exe"  "$basedir/node_modules/corepack/dist/pnpm. ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ($ node scripts/tauri-auto.js build:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+⚠️  Vulkan detected but missing dependencies - falling back to CPU
+   Missing: VULKAN_SDK environment variable
+   Missing: BLAS_INCLUDE_DIRS environment variable
+
+🚀 Running: tauri build (CPU-only mode)
+
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `pnpm build`
+$ next build
+  ▲ Next.js 14.2.35
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/11) ...
+   Generating static pages (2/11) 
+   Generating static pages (5/11) 
+   Generating static pages (8/11) 
+ ✓ Generating static pages (11/11)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+> Build error occurred
+Error: EEXIST: file already exists, copyfile 'D:\meetily\frontend\.next\static\chunks\1411-1831dc0f184accc9.js' -> 'D:\
+meetily\frontend\out\_next\static\chunks\1411-1831dc0f184accc9.js'
+    at async Object.copyFile (node:internal/fs/promises:615:10)
+    at async _copy (D:\meetily\frontend\node_modules\.pnpm\next@14.2.35_@babel+core@7._92bcef98349dde1ff82d3721e79cbb06
+\node_modules\next\dist\lib\recursive-copy.js:62:13)
+    at async Promise.all (index 2)
+    at async _copy (D:\meetily\frontend\node_modules\.pnpm\next@14.2.35_@babel+core@7._92bcef98349dde1ff82d3721e79cbb06
+\node_modules\next\dist\lib\recursive-copy.js:58:13)
+    at async Promise.all (index 0)
+    at async _copy (D:\meetily\frontend\node_modules\.pnpm\next@14.2.35_@babel+core@7._92bcef98349dde1ff82d3721e79cbb06
+\node_modules\next\dist\lib\recursive-copy.js:58:13)
+    at async recursiveCopy (D:\meetily\frontend\node_modules\.pnpm\next@14.2.35_@babel+core@7._92bcef98349dde1ff82d3721
+e79cbb06\node_modules\next\dist\lib\recursive-copy.js:68:5)
+    at async Span.traceAsyncFn (D:\meetily\frontend\node_modules\.pnpm\next@14.2.35_@babel+core@7._92bcef98349dde1ff82d
+3721e79cbb06\node_modules\next\dist\trace\trace.js:154:20)
+    at async exportAppImpl (D:\meetily\frontend\node_modules\.pnpm\next@14.2.35_@babel+core@7._92bcef98349dde1ff82d3721
+e79cbb06\node_modules\next\dist\export\index.js:278:9)
+    at async D:\meetily\frontend\node_modules\.pnpm\next@14.2.35_@babel+core@7._92bcef98349dde1ff82d3721e79cbb06\node_m
+odules\next\dist\export\index.js:623:16 {
+  errno: -4075,
+  code: 'EEXIST',
+  syscall: 'copyfile',
+  path: 'D:\\meetily\\frontend\\.next\\static\\chunks\\1411-1831dc0f184accc9.js',
+  dest: 'D:\\meetily\\frontend\\out\\_next\\static\\chunks\\1411-1831dc0f184accc9.js'
+}
+[ELIFECYCLE] Command failed with exit code 1.
+beforeBuildCommand `pnpm build` failed with exit code 1
+       Error beforeBuildCommand `pnpm build` failed with exit code 1
+[ELIFECYCLE] Command failed with exit code 1.

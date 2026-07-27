@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { X, Download, Check, Loader2, ArrowBigDownDash } from 'lucide-react';
 import { getDownloadTotalMb } from '@/lib/onboarding-summary-model';
@@ -51,9 +52,11 @@ function categorizeError(error: string): string {
 function DownloadToastContent({
   download,
   onDismiss,
+  onRetry,
 }: {
   download: DownloadProgress;
   onDismiss?: () => void;
+  onRetry?: () => void;
 }) {
   const isComplete = download.status === 'completed';
   const hasError = download.status === 'error';
@@ -86,7 +89,17 @@ function DownloadToastContent({
         </div>
 
         {hasError ? (
-          <p className="text-xs text-red-600">{download.error || 'Download failed'}</p>
+          <div>
+            <p className="text-xs text-red-600">{download.error || 'Download failed'}</p>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="mt-1.5 px-3 py-1 bg-gray-900 hover:bg-gray-800 text-white text-xs font-medium rounded transition-colors"
+              >
+                重试下载
+              </button>
+            )}
+          </div>
         ) : isComplete ? (
           <p className="text-xs text-green-600">Download complete</p>
         ) : isCancelled ? (
@@ -126,6 +139,8 @@ function DownloadToastContent({
 export function useDownloadProgressToast() {
   const [downloads, setDownloads] = useState<Map<string, DownloadProgress>>(new Map());
   const [dismissedModels, setDismissedModels] = useState<Set<string>>(new Set());
+  // Ref to store retry callbacks for sherpa-asr models (functions can't go in state)
+  const retryCallbacksRef = useRef<Map<string, () => void>>(new Map());
 
   const updateDownload = useCallback((modelName: string, data: Partial<DownloadProgress>) => {
     setDownloads((prev) => {
@@ -153,6 +168,8 @@ export function useDownloadProgressToast() {
         updated.delete(modelName);
         return updated;
       });
+      // Also clean up retry callback
+      retryCallbacksRef.current.delete(modelName);
     }, delay);
   }, []);
 
@@ -164,7 +181,7 @@ export function useDownloadProgressToast() {
       switch (download.status) {
         case 'completed': return 3000;      // 3 seconds
         case 'cancelled': return 5000;      // 5 seconds
-        case 'error': return 10000;         // 10 seconds
+        case 'error': return 30000;         // 30 seconds (give user time to click retry)
         case 'downloading': return Infinity; // Manual dismiss only
       }
     };
@@ -179,11 +196,15 @@ export function useDownloadProgressToast() {
       });
     };
 
+    // Get retry callback for this model (if any)
+    const retryFn = retryCallbacksRef.current.get(download.modelName);
+
     toast.custom(
       (t) => (
         <DownloadToastContent
           download={download}
           onDismiss={dismissToast}
+          onRetry={retryFn}
         />
       ),
       {
@@ -228,15 +249,15 @@ export function useDownloadProgressToast() {
       total_mb?: number;
       speed_mbps?: number;
       status?: string;
-    }>('parakeet-model-download-progress', (event) => {
+    }>('model-download-progress', (event) => {
       const { modelName, progress, downloaded_mb, total_mb, speed_mbps, status } = event.payload;
 
       const downloadData: DownloadProgress = {
         modelName,
-        displayName: 'Transcription Model (Parakeet)',
+        displayName: '转录引擎 (SenseVoice)',
         progress,
         downloadedMb: downloaded_mb ?? 0,
-        totalMb: total_mb ?? 670,
+        totalMb: total_mb ?? 228,
         speedMbps: speed_mbps ?? 0,
         status: status === 'cancelled'
           ? 'cancelled'
@@ -255,15 +276,15 @@ export function useDownloadProgressToast() {
     });
 
     const unlistenComplete = listen<{ modelName: string }>(
-      'parakeet-model-download-complete',
+      'model-download-complete',
       (event) => {
         const { modelName } = event.payload;
         const downloadData: DownloadProgress = {
           modelName,
-          displayName: 'Transcription Model (Parakeet)',
+          displayName: '转录引擎 (SenseVoice)',
           progress: 100,
-          downloadedMb: 670,
-          totalMb: 670,
+          downloadedMb: 228,
+          totalMb: 228,
           speedMbps: 0,
           status: 'completed',
         };
@@ -274,22 +295,35 @@ export function useDownloadProgressToast() {
     );
 
     const unlistenError = listen<{ modelName: string; error: string }>(
-      'parakeet-model-download-error',
+      'model-download-error',
       (event) => {
         const { modelName, error } = event.payload;
         const downloadData: DownloadProgress = {
           modelName,
-          displayName: 'Transcription Model (Parakeet)',
+          displayName: '转录引擎 (SenseVoice)',
           progress: 0,
           downloadedMb: 0,
-          totalMb: 670,
+          totalMb: 228,
           speedMbps: 0,
           status: 'error',
           error: categorizeError(error),
         };
+        // Register retry callback so the error toast can show a "重试下载" button
+        retryCallbacksRef.current.set(modelName, () => {
+          // Reset to downloading state and re-invoke the download command
+          updateDownload(modelName, {
+            status: 'downloading',
+            progress: 0,
+            downloadedMb: 0,
+            error: undefined,
+          });
+          invoke('sherpa_asr_download_model', { modelName }).catch((err) => {
+            console.error('[DownloadToast] Retry failed:', err);
+          });
+        });
         updateDownload(modelName, downloadData);
-        // Clean up after 11 seconds (error toast duration is 10s + 1s buffer)
-        cleanupDownload(modelName, 11000);
+        // Clean up after 31 seconds (error toast duration is 30s + 1s buffer)
+        cleanupDownload(modelName, 31000);
       }
     );
 

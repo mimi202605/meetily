@@ -29,10 +29,10 @@ echo.
 
 echo.
 
-REM Kill any existing processes on port 3118
-echo 🧹 Checking for existing processes on port 3118...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3118 2^>nul') do (
-    echo    Killing process %%a on port 3118
+REM Kill any existing processes on port 55556
+echo 🧹 Checking for existing processes on port 55556...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :55556 2^>nul') do (
+    echo    Killing process %%a on port 55556
     taskkill /PID %%a /F >nul 2>&1
 )
 
@@ -136,12 +136,18 @@ if not exist "%HELPER_DIR%" (
     exit /b 1
 )
 
+REM llama-helper is always built CPU-only to avoid shipping extra GPU DLLs.
+REM GPU features (cuda/vulkan) are only applied to the main Tauri app.
 set "HELPER_FEATURES="
-if defined TAURI_GPU_FEATURE (
-    set "HELPER_FEATURES=--features !TAURI_GPU_FEATURE!"
-)
 
-echo    Building in %HELPER_DIR% with features: %HELPER_FEATURES%
+REM Force CMake to use the Release MSVC runtime (/MD) instead of Debug (/MDd).
+REM This prevents the binary from depending on ucrtbased.dll / vcruntime140d.dll
+REM which are missing on end-user machines without Visual Studio installed.
+set "CMAKE_BUILD_TYPE=Release"
+set "CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"
+set "CL=/utf-8"
+
+echo    Building in %HELPER_DIR% ^(CPU-only, Release runtime^)
 pushd "%HELPER_DIR%"
 call cargo build --release %HELPER_FEATURES%
 if errorlevel 1 (

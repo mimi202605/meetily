@@ -3,9 +3,13 @@
 /// Centralized definitions for default models and settings.
 /// Used across database initialization, import, and retranscription.
 
+/// Default Sherpa-ONNX ASR model for transcription.
+/// SenseVoice-Small int8: 228MB, supports zh/en/ja/ko/yue, CPU fast, with punctuation.
+pub const DEFAULT_SHERPA_ASR_MODEL: &str = "sense-voice-zh-en-ja-ko-yue-int8";
+
 /// Default Whisper model for transcription when no preference is configured.
 /// This is the recommended balance of accuracy and speed.
-pub const DEFAULT_WHISPER_MODEL: &str = "large-v3-turbo";
+pub const DEFAULT_WHISPER_MODEL: &str = "medium";
 
 /// Default Parakeet model for transcription when no preference is configured.
 /// This is the quantized version optimized for speed.

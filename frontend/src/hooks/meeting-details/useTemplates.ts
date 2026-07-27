@@ -9,7 +9,7 @@ export function useTemplates() {
     name: string;
     description: string;
   }>>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('standard_meeting');
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('meeting_minutes');
 
   // Fetch available templates on mount
   useEffect(() => {
@@ -32,8 +32,8 @@ export function useTemplates() {
   // Handle template selection
   const handleTemplateSelection = useCallback((templateId: string, templateName: string) => {
     setSelectedTemplate(templateId);
-    toast.success('Template selected', {
-      description: `Using "${templateName}" template for summary generation`,
+    toast.success('模板已选择', {
+      description: `使用"${templateName}"模板生成摘要`,
     });
     Analytics.trackFeatureUsed('template_selected');
   }, []);

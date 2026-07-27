@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Beta Features Type System
  *
  * This file defines the scalable architecture for managing beta features.
@@ -25,7 +25,7 @@ export interface BetaFeatures {
 }
 
 export const DEFAULT_BETA_FEATURES: BetaFeatures = {
-  importAndRetranscribe: true, // Default: enabled
+  importAndRetranscribe: true, // Default: enabled (audio import feature)
 };
 
 
@@ -33,14 +33,14 @@ export const DEFAULT_BETA_FEATURES: BetaFeatures = {
  * Human-readable feature names for UI display
  */
 export const BETA_FEATURE_NAMES: Record<keyof BetaFeatures, string> = {
-  importAndRetranscribe: 'Import Audio & Retranscribe',
+  importAndRetranscribe: '导入音频并重新转录',
 };
 
 /**
  * Feature descriptions for UI tooltips/help text
  */
 export const BETA_FEATURE_DESCRIPTIONS: Record<keyof BetaFeatures, string> = {
-  importAndRetranscribe: 'Import audio files to transcribe or retranscribe existing meetings with different language settings.',
+  importAndRetranscribe: '导入音频文件进行转录，或使用不同的语言设置重新转录现有会议。',
 };
 
 /**

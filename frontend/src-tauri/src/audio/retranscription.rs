@@ -1,5 +1,6 @@
 // Retranscription module - allows re-processing stored audio with different settings
 
+use crate::api::TranscriptSegment;
 use crate::audio::decoder::decode_audio_file;
 use crate::audio::vad::get_speech_chunks_with_progress;
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
@@ -101,11 +102,10 @@ pub async fn start_retranscription<R: Runtime>(
     // Reset cancellation flag
     RETRANSCRIPTION_CANCELLED.store(false, Ordering::SeqCst);
 
-    let use_parakeet = provider.as_deref() == Some("parakeet");
-    let result = run_retranscription(app.clone(), meeting_id.clone(), meeting_folder_path, language, model, provider).await;
+    let result = run_retranscription(app.clone(), meeting_id.clone(), meeting_folder_path, language, model, provider.clone()).await;
 
     // Unload the engine after the batch job (success, failure, or cancellation)
-    super::common::unload_engine_after_batch(use_parakeet).await;
+    super::common::unload_engine_after_batch(provider.as_deref()).await;
 
     // Guard will automatically clear flag on drop
     // No need for manual: RETRANSCRIPTION_IN_PROGRESS.store(false, Ordering::SeqCst);
@@ -138,7 +138,7 @@ pub async fn start_retranscription<R: Runtime>(
 
 /// Find audio file in meeting folder
 /// Tries common names first, then scans for any file with an audio extension
-fn find_audio_file(folder: &Path) -> Result<PathBuf> {
+pub fn find_audio_file(folder: &Path) -> Result<PathBuf> {
     let candidates = [
         "audio.mp4", "audio.m4a", "audio.wav", "audio.mp3",
         "audio.flac", "audio.ogg", "recording.mp4",
@@ -180,8 +180,30 @@ async fn run_retranscription<R: Runtime>(
     let folder_path = PathBuf::from(&meeting_folder_path);
     let audio_path = find_audio_file(&folder_path)?;
 
-    // Determine which provider to use (default to whisper)
+    // Resolve provider and model from saved config if not explicitly provided
+    let (provider, model) = if provider.is_none() {
+        match crate::api::api::api_get_transcript_config(
+            app.clone(),
+            app.clone().state(),
+            None,
+        ).await {
+            Ok(Some(config)) => {
+                info!("📝 Using transcript config - provider: {}, model: {}", config.provider, config.model);
+                (Some(config.provider), model.or(Some(config.model)))
+            }
+            _ => {
+                info!("📝 No transcript config found, defaulting to Sherpa-ASR (SenseVoice)");
+                (Some("sherpaAsr".to_string()),
+                 Some(crate::sherpa_asr_engine::sherpa_asr_engine::DEFAULT_MODEL_NAME.to_string()))
+            }
+        }
+    } else {
+        (provider, model)
+    };
+
+    // Determine which provider to use
     let use_parakeet = provider.as_deref() == Some("parakeet");
+    let use_sherpa_asr = provider.as_deref() == Some("sherpaAsr");
 
     info!(
         "Starting retranscription for meeting {} with language {:?}, model {:?}, provider {:?}",
@@ -189,7 +211,7 @@ async fn run_retranscription<R: Runtime>(
     );
 
     // Emit progress: decoding
-    emit_progress(&app, &meeting_id, "decoding", 5, "Decoding audio file...");
+    emit_progress(&app, &meeting_id, "decoding", 5, "正在解码音频文件...");
 
     // Check for cancellation
     if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
@@ -210,7 +232,7 @@ async fn run_retranscription<R: Runtime>(
         duration_seconds, decoded.sample_rate, decoded.channels
     );
 
-    emit_progress(&app, &meeting_id, "decoding", 15, "Converting audio format...");
+    emit_progress(&app, &meeting_id, "decoding", 15, "正在转换音频格式...");
 
     // Check for cancellation
     if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
@@ -225,7 +247,7 @@ async fn run_retranscription<R: Runtime>(
     .map_err(|e| anyhow!("Resample task panicked: {}", e))?;
     info!("Converted to 16kHz mono format: {} samples", audio_samples.len());
 
-    emit_progress(&app, &meeting_id, "vad", 20, "Detecting speech segments...");
+    emit_progress(&app, &meeting_id, "vad", 20, "正在检测语音片段...");
 
     // Check for cancellation
     if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
@@ -296,16 +318,38 @@ async fn run_retranscription<R: Runtime>(
         return Err(anyhow!("No speech detected in audio file"));
     }
 
-    emit_progress(&app, &meeting_id, "transcribing", 25, "Loading transcription engine...");
+    emit_progress(&app, &meeting_id, "transcribing", 25, "正在加载转录引擎...");
 
     // Initialize the appropriate engine once (not per-segment)
-    let whisper_engine = if !use_parakeet {
+    let whisper_engine = if !use_parakeet && !use_sherpa_asr {
         Some(get_or_init_whisper(&app, model.as_deref()).await?)
     } else {
         None
     };
     let parakeet_engine = if use_parakeet {
         Some(get_or_init_parakeet(&app, model.as_deref()).await?)
+    } else {
+        None
+    };
+    let sherpa_asr_engine = if use_sherpa_asr {
+        // Initialize Sherpa-ASR engine and validate model
+        crate::sherpa_asr_engine::commands::sherpa_asr_init()
+            .await
+            .map_err(|e| anyhow!("Failed to init Sherpa-ASR engine: {}", e))?;
+        let models_dir = crate::sherpa_asr_engine::commands::get_models_directory();
+        let engine = crate::sherpa_asr_engine::sherpa_asr_engine::get_or_init_engine(models_dir);
+
+        // Get the configured or default model name
+        let target_model = model.as_deref().unwrap_or(
+            crate::sherpa_asr_engine::sherpa_asr_engine::DEFAULT_MODEL_NAME,
+        );
+
+        // Validate/load model
+        engine
+            .validate_model_ready(target_model)
+            .map_err(|e| anyhow!("Sherpa-ASR model '{}' not ready: {}", target_model, e))?;
+
+        Some(engine)
     } else {
         None
     };
@@ -354,7 +398,7 @@ async fn run_retranscription<R: Runtime>(
             "transcribing",
             progress,
             &format!(
-                "Transcribing segment {} of {} ({:.1}s)...",
+                "正在转录第 {} 段，共 {} 段（{:.1}s）...",
                 i + 1,
                 processable_count,
                 segment_duration_sec
@@ -374,6 +418,12 @@ async fn run_retranscription<R: Runtime>(
                 .transcribe_audio(segment.samples.clone())
                 .await
                 .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
+            (text, 0.9f32)
+        } else if use_sherpa_asr {
+            let engine = sherpa_asr_engine.as_ref().unwrap();
+            let text = engine
+                .transcribe_audio(&segment.samples, 16000, language.clone())
+                .map_err(|e| anyhow!("Sherpa-ASR transcription failed on segment {}: {}", i, e))?;
             (text, 0.9f32)
         } else {
             let engine = whisper_engine.as_ref().unwrap();
@@ -416,10 +466,10 @@ async fn run_retranscription<R: Runtime>(
         return Err(anyhow!("Retranscription cancelled"));
     }
 
-    emit_progress(&app, &meeting_id, "saving", 80, "Saving transcripts...");
+    emit_progress(&app, &meeting_id, "saving", 80, "正在保存转录...");
 
     // Create transcript segments with proper timestamps from VAD
-    let segments = create_transcript_segments(&all_transcripts);
+    let mut segments = create_transcript_segments(&all_transcripts);
 
     // Save to database
     let app_state = app
@@ -496,6 +546,31 @@ async fn run_retranscription<R: Runtime>(
         duration_seconds,
         language,
     })
+}
+
+/// Update speaker labels for transcripts in the database (best-effort).
+async fn update_speaker_labels_in_db<R: Runtime>(
+    app: &AppHandle<R>,
+    meeting_id: &str,
+    segments: &[TranscriptSegment],
+) -> Result<()> {
+    let app_state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| anyhow!("App state not available"))?;
+
+    let pool = app_state.db_manager.pool();
+    for seg in segments {
+        if let Some(speaker) = seg.speaker {
+            sqlx::query("UPDATE transcripts SET speaker = ? WHERE id = ? AND meeting_id = ?")
+                .bind(speaker.to_string())
+                .bind(&seg.id)
+                .bind(meeting_id)
+                .execute(pool)
+                .await
+                .map_err(|e| anyhow!("Failed to update speaker label: {}", e))?;
+        }
+    }
+    Ok(())
 }
 
 /// Emit progress event

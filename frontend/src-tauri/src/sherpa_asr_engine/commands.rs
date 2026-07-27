@@ -67,12 +67,12 @@ pub async fn sherpa_asr_get_available_models() -> Result<Vec<ModelInfo>, String>
 /// Check if any Sherpa-ASR models are available (bundled or downloaded).
 #[tauri::command]
 pub async fn sherpa_asr_has_available_models() -> Result<bool, String> {
-    // Bundled SenseVoice is always available in production builds.
-    if super::sherpa_asr_engine::get_bundled_models_dir().is_some() {
+    // Check if bundled SenseVoice model files actually exist on disk.
+    let engine = get_engine();
+    if engine.is_model_downloaded(super::sherpa_asr_engine::DEFAULT_MODEL_NAME) {
         return Ok(true);
     }
-    // Dev fallback: check downloaded models in app_data.
-    let engine = get_engine();
+    // Fallback: check downloaded models in app_data.
     Ok(engine.has_available_models())
 }
 

@@ -11,11 +11,6 @@ use super::recording_state::AudioChunk;
 use super::audio_processing::create_meeting_folder;
 use super::incremental_saver::IncrementalAudioSaver;
 
-use crate::speaker_diarization_engine::engine::{
-    align_transcripts_with_speakers, TranscriptChunkForAlignment,
-};
-use crate::speaker_diarization_engine::commands as diarization_commands;
-
 /// Structured transcript segment for JSON export
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptSegment {
@@ -30,6 +25,9 @@ pub struct TranscriptSegment {
     /// Speaker ID assigned by diarization (None until post-processing runs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker: Option<i32>,
+    /// Speaker name from voiceprint matching or manual assignment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_name: Option<String>,
 }
 
 /// Meeting metadata structure
@@ -138,6 +136,7 @@ impl RecordingSaver {
             confidence: 1.0,
             sequence_id: 0,
             speaker: None,
+            speaker_name: None,
         };
         self.add_transcript_segment(segment);
     }
@@ -406,19 +405,6 @@ impl RecordingSaver {
             return Err("No incremental saver initialized".to_string());
         };
 
-        // [NEW] Run speaker diarization post-processing.
-        // Failure is non-fatal: transcripts are still saved without speaker labels.
-        if let Some(folder) = &self.meeting_folder {
-            if let Err(e) = self.run_diarization(app, folder, &final_audio_path).await {
-                warn!("Speaker diarization failed (transcripts unaffected): {}", e);
-                use tauri::Emitter;
-                let _ = app.emit(
-                    "transcript-diarization-error",
-                    serde_json::json!({ "error": e.to_string() }),
-                );
-            }
-        }
-
         // Save final transcripts.json with validation
         if let Some(folder) = &self.meeting_folder {
             if let Err(e) = self.write_transcripts_json(folder) {
@@ -478,90 +464,6 @@ impl RecordingSaver {
         }
 
         Ok(Some(final_audio_path.to_string_lossy().to_string()))
-    }
-
-    /// Run speaker diarization on the saved audio file, backfill the `speaker`
-    /// field on each transcript segment, rewrite transcripts.json, and emit
-    /// `transcript-diarized` to the frontend.
-    ///
-    /// Non-fatal: returns Err on any failure; caller logs and continues.
-    async fn run_diarization<R: Runtime>(
-        &self,
-        app: &AppHandle<R>,
-        folder: &std::path::Path,
-        audio_path: &std::path::Path,
-    ) -> Result<(), anyhow::Error> {
-        use tauri::Emitter;
-
-        // Emit "processing started" toast trigger.
-        let _ = app.emit(
-            "transcript-diarization-started",
-            serde_json::json!({}),
-        );
-
-        // Ensure engine is initialized (models dir set in setup hook).
-        diarization_commands::set_models_directory(app);
-
-        // Call the diarization process command (decodes audio + runs model).
-        let audio_path_str = audio_path.to_string_lossy().to_string();
-        let segments = match diarization_commands::speaker_diarization_process(audio_path_str).await {
-            Ok(s) => s,
-            Err(e) => return Err(anyhow::anyhow!("diarization_process failed: {}", e)),
-        };
-
-        if segments.is_empty() {
-            info!("[Diarization] No segments returned (audio too short or no speech); skipping speaker labels");
-            return Ok(());
-        }
-
-        // Lock transcript segments, align, and backfill speaker field.
-        let mut segments_guard = self.transcript_segments.lock()
-            .map_err(|e| anyhow::anyhow!("transcript_segments lock poisoned: {}", e))?;
-
-        let chunks_for_alignment: Vec<TranscriptChunkForAlignment> = segments_guard
-            .iter()
-            .map(|s| TranscriptChunkForAlignment {
-                id: s.id.clone(),
-                audio_start_time: s.audio_start_time,
-                audio_end_time: s.audio_end_time,
-                speaker: None,
-            })
-            .collect();
-
-        let aligned = align_transcripts_with_speakers(chunks_for_alignment, &segments);
-
-        // Apply aligned speaker IDs back onto the stored segments.
-        for (seg, aligned_chunk) in segments_guard.iter_mut().zip(aligned.iter()) {
-            seg.speaker = aligned_chunk.speaker;
-        }
-        drop(segments_guard);
-
-        // Rewrite transcripts.json with speaker field populated.
-        self.write_transcripts_json(&folder.to_path_buf())?;
-
-        // Emit diarized transcripts to frontend.
-        let final_segments: Vec<TranscriptSegment> = {
-            let g = self.transcript_segments.lock()
-                .map_err(|e| anyhow::anyhow!("transcript_segments lock poisoned: {}", e))?;
-            g.clone()
-        };
-
-        let num_speakers = segments.iter().map(|s| s.speaker).max().map(|m| m + 1).unwrap_or(0);
-        info!(
-            "[Diarization] Success: {} speakers, {} segments labeled",
-            num_speakers,
-            final_segments.len()
-        );
-
-        let _ = app.emit(
-            "transcript-diarized",
-            serde_json::json!({
-                "transcripts": final_segments,
-                "num_speakers": num_speakers,
-            }),
-        );
-
-        Ok(())
     }
 
     /// Get the meeting folder path (for passing to backend)

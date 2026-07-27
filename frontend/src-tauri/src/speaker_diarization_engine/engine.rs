@@ -113,9 +113,11 @@ impl SpeakerDiarizationEngine {
         };
 
         // num_clusters = 0 => auto-detect speakers via clustering threshold.
+        // sherpa-onnx 的 threshold 是 cosine distance（1 - similarity），
+        // 越大越宽容合并；0.8 表示 similarity > 0.2 即视为同一说话人。
         let clustering = FastClusteringConfig {
             num_clusters: 0,
-            threshold: 0.4,  // 降低阈值更宽松合并同一说话人（CAM++ 配合）
+            threshold: 0.8,
         };
 
         let config = OfflineSpeakerDiarizationConfig {

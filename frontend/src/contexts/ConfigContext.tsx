@@ -6,7 +6,7 @@ import { SelectedDevices } from '@/components/DeviceSelection';
 import { configService, ModelConfig } from '@/services/configService';
 import { invoke } from '@tauri-apps/api/core';
 import Analytics from '@/lib/analytics';
-import { BetaFeatures, BetaFeatureKey, loadBetaFeatures, saveBetaFeatures } from '@/types/betaFeatures';
+import { BetaFeatures, BetaFeatureKey, DEFAULT_BETA_FEATURES, loadBetaFeatures, saveBetaFeatures } from '@/types/betaFeatures';
 
 export interface OllamaModel {
   name: string;
@@ -106,9 +106,10 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   });
 
   // Transcript model configuration state
+  // Default to Sherpa-ONNX ASR (SenseVoice) - pure Rust, no Python needed.
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
-    provider: 'parakeet',
-    model: 'parakeet-tdt-0.6b-v3-int8',
+    provider: 'sherpaAsr',
+    model: 'sense-voice-zh-en-ja-ko-yue-int8',
     apiKey: null
   });
 
@@ -137,36 +138,16 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   });
 
   // Language preference state
-  const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('primaryLanguage');
-      return saved || 'auto';
-    }
-    return 'auto';
-  });
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('zh');
 
   // UI preferences state
-  const [showConfidenceIndicator, setShowConfidenceIndicator] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('showConfidenceIndicator');
-      return saved !== null ? saved === 'true' : true;
-    }
-    return true;
-  });
+  const [showConfidenceIndicator, setShowConfidenceIndicator] = useState<boolean>(true);
 
   // Summary configs
-  const [isAutoSummary, setisAutoSummary] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('isAutoSummary');
-      return saved !== null ? saved === 'true' : false
-    }
-    return false;
-  });
+  const [isAutoSummary, setisAutoSummary] = useState<boolean>(true);
 
   // Beta features state (localStorage)
-  const [betaFeatures, setBetaFeatures] = useState<BetaFeatures>(() => {
-    return loadBetaFeatures();
-  });
+  const [betaFeatures, setBetaFeatures] = useState<BetaFeatures>(DEFAULT_BETA_FEATURES);
 
   // Preference settings state (lazy loaded)
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
@@ -174,6 +155,27 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
   const preferencesLoadedRef = useRef(false);
   const isLoadingRef = useRef(false);
+
+  // Load localStorage-based state after mount to avoid hydration mismatch.
+  // During SSR/static export, typeof window === 'undefined' so these states
+  // initialize with defaults. On the client, we read from localStorage in
+  // useEffect (after hydration) to keep the initial render consistent.
+  useEffect(() => {
+    setSelectedLanguage(localStorage.getItem('primaryLanguage') || 'zh');
+    setShowConfidenceIndicator(
+      (() => {
+        const saved = localStorage.getItem('showConfidenceIndicator');
+        return saved !== null ? saved === 'true' : true;
+      })()
+    );
+    setisAutoSummary(
+      (() => {
+        const saved = localStorage.getItem('isAutoSummary');
+        return saved !== null ? saved === 'true' : true;
+      })()
+    );
+    setBetaFeatures(loadBetaFeatures());
+  }, []);
 
   // Load Ollama models (uses saved endpoint, re-runs when endpoint changes after config load)
   useEffect(() => {
@@ -199,8 +201,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         if (config) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
           setTranscriptModelConfig({
-            provider: config.provider || 'parakeet',
-            model: config.model || 'parakeet-tdt-0.6b-v3-int8',
+            provider: config.provider || 'sherpaAsr',
+            model: config.model || 'sense-voice-zh-en-ja-ko-yue-int8',
             apiKey: config.apiKey || null
           });
         }

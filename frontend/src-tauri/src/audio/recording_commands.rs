@@ -276,6 +276,7 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
                     confidence: update.confidence,
                     sequence_id: update.sequence_id,
                     speaker: None,
+                    speaker_name: None,
                 };
 
                 // Save to recording manager
@@ -448,6 +449,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
                     confidence: update.confidence,
                     sequence_id: update.sequence_id,
                     speaker: None,
+                    speaker_name: None,
                 };
 
                 // Save to recording manager

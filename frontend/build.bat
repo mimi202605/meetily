@@ -29,10 +29,10 @@ if "%~1" == "debug" (
 echo 🚀 Building Meetily application...
 echo 🔨 Building Tauri application...
 
-REM Kill any existing processes on port 3118
-echo Checking for existing processes on port 3118...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3118') do (
-    echo Killing process %%a on port 3118
+REM Kill any existing processes on port 55556
+echo Checking for existing processes on port 55556...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :55556') do (
+    echo Killing process %%a on port 55556
     taskkill /PID %%a /F >nul 2>&1
 )
 
@@ -189,7 +189,7 @@ echo   - C++ runtime libraries
 echo   - LLVM/Clang paths for whisper-rs-sys
 echo.
 echo PORT MANAGEMENT:
-echo   Automatically kills processes on port 3118 before building
+echo   Automatically kills processes on port 55556 before building
 echo.
 echo TROUBLESHOOTING:
 echo   If build fails, ensure:

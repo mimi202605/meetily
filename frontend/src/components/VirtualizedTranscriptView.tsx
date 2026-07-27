@@ -77,7 +77,8 @@ function getSpeakerColor(speaker: number): string {
     return SPEAKER_COLORS[speaker % SPEAKER_COLORS.length];
 }
 
-function getSpeakerLabel(speaker: number): string {
+function getSpeakerLabel(speaker: number, speakerName?: string): string {
+    if (speakerName) return speakerName;
     return `说话人 ${speaker + 1}`;
 }
 
@@ -88,6 +89,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     text,
     confidence,
     speaker,
+    speakerName,
     isStreaming,
     showConfidence,
 }: {
@@ -96,6 +98,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     text: string;
     confidence?: number;
     speaker?: number;
+    speakerName?: string;
     isStreaming: boolean;
     showConfidence: boolean;
 }) {
@@ -123,7 +126,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
                             <span
                                 className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-white ${getSpeakerColor(speaker!)}`}
                             >
-                                {getSpeakerLabel(speaker!)}
+                                {getSpeakerLabel(speaker!, speakerName)}
                             </span>
                         </div>
                     )}
@@ -325,6 +328,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
                                         speaker={segment.speaker}
+                                        speakerName={segment.speaker_name}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />
@@ -382,6 +386,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
                                         speaker={segment.speaker}
+                                        speakerName={segment.speaker_name}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />

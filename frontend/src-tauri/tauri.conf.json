@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "新际审会议助手",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "identifier": "com.meetily.ai",
   "build": {
     "frontendDist": "../out",
@@ -27,6 +27,7 @@
         "default-src": "'self'",
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' asset: https://asset.localhost data:",
+        "media-src": "'self' asset: https://asset.localhost data: blob:",
         "connect-src": "'self' http://localhost:11434 http://localhost:5167 http://localhost:8178 https://api.ollama.ai"
       },
       "assetProtocol": {
@@ -95,6 +96,10 @@
       "sherpa-libs/onnxruntime.dll": "onnxruntime.dll",
       "sherpa-libs/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll",
       "sherpa-libs/DirectML.dll": "DirectML.dll",
+      "sherpa-libs/vcruntime140.dll": "vcruntime140.dll",
+      "sherpa-libs/vcruntime140_1.dll": "vcruntime140_1.dll",
+      "sherpa-libs/msvcp140.dll": "msvcp140.dll",
+      "sherpa-libs/vcomp140.dll": "vcomp140.dll",
       "sherpa-libs/models/sense-voice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx": "models/sense-voice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx",
       "sherpa-libs/models/sense-voice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt": "models/sense-voice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt",
       "sherpa-libs/models/speaker-diarization/sherpa-onnx-pyannote-segmentation-3-0/model.onnx": "models/speaker-diarization/sherpa-onnx-pyannote-segmentation-3-0/model.onnx",

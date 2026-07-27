@@ -351,6 +351,13 @@ pub async fn generate_meeting_summary(
         provider, model_name
     );
 
+    // Defence-in-depth: callers (commands.rs) already reject empty transcripts,
+    // but guard here too so future callers cannot trigger an empty-prompt sidecar
+    // request that crashes the helper process.
+    if text.trim().is_empty() {
+        return Err("Transcript text is empty, cannot generate summary.".to_string());
+    }
+
     let total_tokens = rough_token_count(text);
     info!("Transcript length: {} tokens", total_tokens);
 
