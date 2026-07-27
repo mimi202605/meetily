@@ -30,7 +30,7 @@
 </p>
     <p align="center">
 
-A privacy-first AI meeting assistant that captures, transcribes, and summarizes meetings entirely on your infrastructure. Built by expert AI engineers passionate about data sovereignty and open source solutions. Perfect for enterprises that need advanced meeting intelligence without compromising on privacy, compliance, or control.
+增强版中文版Meetily，适用于中文环境，增强版拥有降噪、多人识别和声纹记忆功能
 
 </p>
 
